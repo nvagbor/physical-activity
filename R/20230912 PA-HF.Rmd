@@ -27,9 +27,6 @@ output: html_document
 
 ```{r Import packages and data}
 
-# setting WD and loading required packages 
-setwd ("J:/Physical activity and HF/R codes")
-# memory.limit(size=900000000000)
 
 rm (list = ls())
 
@@ -62,7 +59,7 @@ endpoint <- read_csv(
 
 
 
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, root.dir = "J:/Physical activity and HF/R codes")
 ```
 
 
@@ -1739,19 +1736,23 @@ RDR <-
 RDR_report <- 
       resurv_met_df %>%
          select(baseline_pa_group, mean_met_baseline, mean_met_resurvey) %>% 
-  
          dplyr::mutate(
            dilution_ratio = NA, 
            mean_met_baseline = format(round(mean_met_baseline, 2), nsmall = 2L), 
-           mean_met_resurvey = format(round(mean_met_resurvey, 2), nsmall = 2L)
-      ) %>% 
-  
+           mean_met_resurvey = format(round(mean_met_resurvey, 2), nsmall = 2L)) %>% 
          add_row(.before = 1, dilution_ratio = RDR_ci) %>% 
          rename(
            "Baseline PA group" = baseline_pa_group,
            "Mean baseline PA"  = mean_met_baseline, 
-           "Mean resurvey PA"  = mean_met_resurvey
-      )
+           "Mean resurvey PA"  = mean_met_resurvey)
+
+
+
+RDR_peto <- rdr_peto(dataset = resurv_met_df,
+                     baseline_var = "mean_met_baseline", 
+                     resurvey_var = "mean_met_resurvey")
+
+# RDR_Peto = 0.3949879
 
 # write.csv(RDR_report, file = "Table S1 - Baseline and resurvey mean PA.csv")
      
@@ -1865,7 +1866,7 @@ n_resurvey_sample  <- map(list(resurvey1, resurvey2), ~nrow(.x)) # Original resu
 csid_baseline_data <- merged_data$csid # Get id for those included in baseline survey --
 
 
-# Define non-work 
+# Define non-work  
 resurvey1$met_nonwork <- resurvey1$met - resurvey1$met_work
 resurvey2$met_nonwork <- resurvey2$met - resurvey2$met_work
 
@@ -1995,7 +1996,7 @@ for (j in seq_along(exposures)) {
              mean_var_baseline = format(round(mean_var_baseline, 2), nsmall = 2L),
              mean_var_resurvey = format(round(mean_var_resurvey, 2), nsmall = 2L)) %>%
   
-           add_row(.before = 1, dilution_ratio = RDR_ci[[j]]) %>%
+           add_row(.before = 1, dilution_ratio = RDR_ci_type[[j]]) %>%
            rename(
              "Baseline group" = baseline_group,
              "Mean baseline"  = mean_var_baseline,
@@ -2068,12 +2069,8 @@ for (df in seq_along(data_expanded)) {
  
 
 # Add mean PA to far dataset
-FAR <- map(.x = list(m_final[[1]]$dataframe, 
-                     m_final[[2]]$dataframe
-                     ), 
-           ~.x %>% 
-             dplyr::mutate(mean_met = resurv_met_df$mean_met_resurvey)
-           )
+FAR <- map(.x = list(m_final[[1]]$dataframe, m_final[[2]]$dataframe), 
+           ~dplyr::mutate(.x, mean_met = resurv_met_df$mean_met_resurvey))
 
 ## Assess non-linearity in main exposure -------------------------------------------------------------------------------------------
 # non_linr <- map(.x = data_expanded,
@@ -2268,13 +2265,42 @@ closeFile(type)
 
 
 ## Run analysis by type of physical activity 
-No difference from the main analysis
+
+Perform mutual adjustments for occupational and non-occupational physical activity
 
 
 ```{r}
 
-main_cov_type  <- c("met_work_q5_sex", "met_nonwork_q5_sex") 
-m_final_type <- list()
+#Create exposure variables (met_work4 and met_worksd) -------------------- 
+  
+data_expanded <- map(
+  .x = data_expanded, 
+  ~.x %>% dplyr::group_by(sex) %>% 
+  dplyr::mutate(
+    #Work
+    !!paste0("met_work", 4)       := .data[["met_work"]] / 4, 
+    !!paste0("met_work", "sd")    := scale( .data[["met_work"]] ), 
+    !!paste0("met_work", "_sq")  := (.data[["met_work"]])^2, 
+    
+    # Non-work
+    !!paste0("met_nonwork", 4)    := .data[["met_nonwork"]] / 4, 
+    !!paste0("met_nonwork", "sd") := scale( .data[["met_nonwork"]] ), 
+    !!paste0("met_nonwork", "_sq")  := (.data[["met_nonwork"]])^2) %>% 
+  
+  dplyr::ungroup()
+  
+)
+   
+
+
+main_cov_type <- c("met_work_q5_sex", "met_nonwork_q5_sex") 
+
+mutual_adj <- list( # Reverse order to ease the iteration
+  met_work_adj    = c("met_nonwork", "met_nonwork_sq"), 
+  met_nonwork_adj = c("met_work", "met_work_sq")) 
+
+
+m_final_type  <- list()
 
 
 for (df in seq_along(data_expanded)) {
@@ -2282,13 +2308,14 @@ for (df in seq_along(data_expanded)) {
 
     m_final_type[[df]] <- 
       
-    map(
+    map2(
       .x = main_cov_type, 
+      .y = mutual_adj,
       ~Cox_shape_strength_data(
           dataset          = data_expanded[[df]], 
           exposure_var_cat = .x,
           expo_type_shape  = TRUE,
-          adjustment_vars  = c(ses_vars, lifestyle_vars, "emphysema_bronchitis", "copd"), 
+          adjustment_vars  = c(ses_vars, lifestyle_vars, "emphysema_bronchitis", "copd", .y), 
           print_model_info = FALSE) %>% 
         pluck(., 2)
       )
@@ -2337,32 +2364,16 @@ for (k in seq_along(m_final_type)) {
 ```{r}
 
 
-#Create exposure variables (met_work4 and met_worksd) -------------------- 
-  
-data_expanded <- map(
-  .x = data_expanded, 
-  ~.x %>% dplyr::group_by(sex) %>% 
-  dplyr::mutate(
-    #Work
-    !!paste0("met_work", 4)  := .data[["met_work"]] / 4, 
-    !!paste0("met_work", "sd") := scale( .data[["met_work"]] ), 
-    
-    # Non-work
-    !!paste0("met_nonwork", 4)  := .data[["met_nonwork"]] / 4, 
-    !!paste0("met_nonwork", "sd") := scale( .data[["met_nonwork"]] )) %>% 
-  
-  dplyr::ungroup()
-  
-)
-    
-
-
-
-
 # Run regression
 # Corrected for regression dilution 
 
 expos_type      <- c("met_work4", "met_nonwork4")
+
+mutual_adj <- list(
+  met_work_adj    = c("met_nonwork", "met_nonwork_sq"), 
+  met_nonwork_adj = c("met_work", "met_work_sq")) 
+
+
 model_cont_type <- list()
 
 
@@ -2371,19 +2382,20 @@ for(df in seq_along(data_expanded)) {
 model_cont_type[[df]] <- 
          map2(
            .x = expos_type,
-           .y = RDR_peto_type,
+           .y = seq_along(RDR_peto_type),
            ~Cox_shape_strength_data(
                   dataset                     = data_expanded[[df]], 
                   exposure_var_cont           = .x,
                   expo_type_continuous        = TRUE,
                   correct_regression_dilution = TRUE,       
-                  regression_dilution_ratio   = .y,
-                  adjustment_vars = c(ses_vars, lifestyle_vars, "emphysema_bronchitis", "copd"), 
+                  regression_dilution_ratio   = RDR_peto_type[[.y]],
+                  adjustment_vars = c(ses_vars, lifestyle_vars, "emphysema_bronchitis", "copd", mutual_adj[[.y]]), 
                   print_model_info = FALSE
                   ) %>% 
              
-             pluck(., 2)) %>% 
+             pluck(., 2) %>% 
            rename("exposure" = term)
+           )
 
 }
 
@@ -2442,11 +2454,11 @@ SetPage(orient ="LANDSCAPE",
         page_pointsize = 12,
         suppress.date = TRUE,
         titlespace=0.07,
-        footer="All analyses were stratified by age-at-risk, sex, and study area and adjusted for income, education, occupation, alcohol, smoking, sedentary time,\n ephysema, bronchitis and COPD. HF = Heart failure; PHD = Pulmonary heart disease; PA = Physical activity\n
+        footer="All analyses were stratified by age-at-risk, sex, and study area and adjusted for income, education, occupation, alcohol, smoking, sedentary time,\n ephysema, bronchitis and COPD. Additiionally, occupational and non-occupational PA were mututally adjusted for each other\nHF = Heart failure; PHD = Pulmonary heart disease; PA = Physical activity\n
         ",
         footer.cex = 1.2,
         footerspace=0.09,
-        filestem="Figure test type Shape Plot PA and heart failure")
+        filestem="Figure PA type Shape Plot PA and heart failure")
 
 
 # loop over the panels in a slightly strange order, to match data
