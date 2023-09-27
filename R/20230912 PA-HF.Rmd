@@ -530,13 +530,9 @@ PA_sex_region <- map(.x = levels(merged_data$area),
 plot_list <- map2(.x = stratified_met, 
                   .y = seq_along(stratified_met), 
                    
-                    ~ ggplot(data = .x,  mapping = aes(x     = mean_age, 
-                                                       y     = mean_met, 
-                                                       color = sex)) +
-                     
+                    ~ ggplot(data = .x,  mapping = aes(x = mean_age, y = mean_met, color = sex)) +
                         geom_line() +
                         geom_point() + 
-                     
                         geom_errorbar(mapping = aes(x     = mean_age, 
                                                     y     = mean_met, 
                                                     ymin  = lci_met, 
@@ -548,25 +544,21 @@ plot_list <- map2(.x = stratified_met,
                       theme(axis.text.x  = element_text(size = 13, vjust = 0),
                             axis.text.y  = element_text(size = 13, hjust = 1), 
                             axis.title.x = element_text(size = 14, vjust = -1), 
-                            axis.title.y = element_text(size = 14, angle = 90, vjust = 8)
-                            ) +
+                            axis.title.y = element_text(size = 14, angle = 90, vjust = 8)) +
               
-                      geom_segment(mapping = aes(x = 28, xend = 28, y = 5, yend = 40),size = 0.7, color = "black") + 
-                      geom_segment(mapping = aes(x = 30, xend = 80, y = 4, yend = 4), size = 0.7, color = "black") +
+                      geom_segment(mapping = aes(x = 28, xend = 28, y = 5, yend = 40),linewidth = 0.7, color = "black") + 
+                      geom_segment(mapping = aes(x = 30, xend = 80, y = 4, yend = 4), linewidth = 0.7, color = "black") +
                     
-                      theme(axis.ticks        = element_line(size = 0.6),
+                      theme(axis.ticks        = element_line(linewidth = 0.6),
                             axis.ticks.length = unit(0.25, "cm"), 
                             plot.margin       = unit(c(1.5, 1, 1, 1), "cm"), 
-                            legend.position   = list(c(0.15, 0.2), "none")[[.y]]
-                            ) + 
+                            legend.position   = list(c(0.15, 0.2), "none")[[.y]]) + 
                      
                      guides(color = guide_legend(title      = "", 
                                                 title.theme = element_text(size = 10.2,face = "bold"), 
                                                 title.hjust = 0,  
                                                 label.theme = element_text(size = 10.2), 
-                                                label.hjust = 0
-                                                )
-                            ) +
+                                                label.hjust = 0)) +
               
                       # Scales 
                       scale_x_continuous(limits = c(28, 80), 
@@ -577,8 +569,7 @@ plot_list <- map2(.x = stratified_met,
                       scale_y_continuous(limits = c(4, 40),
                                          expand = c(0, 0), 
                                          breaks = seq(5, 40, 5), 
-                                         labels = seq(5, 40, 5)
-                                         ) + 
+                                         labels = seq(5, 40, 5)) + 
                      
                      scale_color_manual(values  = c("black", "#B30437"), 
                                         labels  = unique(.x$sex)) +
@@ -624,8 +615,8 @@ plot_list <- map2(.x = stratified_met,
                                color    = "black") +
 
                      # Axis titles  
-                     ylab( list("Mean physical activity, MET-hr (95% CI)", NULL)[[.y]] ) + 
-                     xlab("\nAge at baseline (years)")
+                     ylab( list("Mean physical activity, MET-hour/day (95% CI)", NULL)[[.y]] ) + 
+                     xlab("\nAge at baseline, year")
      )
                     
 
@@ -641,7 +632,7 @@ plot <- ggarrange (plotlist = plot_list,
  
  
  annotate_figure(plot, 
-                 top = text_grob("Figure 1: Variations in age-specific levels of physical activity by sex and area\n", 
+                 top = text_grob("Figure 1: Variations in age-specific levels of total physical activity by sex and area\n", 
                                  color = "black", 
                                  face  = "bold", 
                                  size  = 16))
