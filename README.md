@@ -1,2 +1,2 @@
 # physical-activity
-Association of physical activity with heart failure and pulmonary heart disease
+Association of physical activity with risks of heart failure and pulmonary heart disease
