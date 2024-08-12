@@ -379,6 +379,46 @@ rm("baseline", "endpoint")
 ```
 
 
+## Impute missing temperature values -- 
+
+```{r}
+# Summarise mean temperatures by region, and month 
+temp_mean_df <- 
+  merged_data %>% 
+  group_by(region, study_date_month) %>% 
+  summarise(region_mean_temp=mean(mean_temp, na.rm=TRUE), .groups="drop") %>% 
+  as.data.frame(.) 
+
+# In the main dataset, imput missing value by region and month 
+region_levels <- levels(merged_data$region)
+merged_data$mean_temp_imputted <- NA
+# Assign observed temperature values 
+# You need to define this first, else it will be difficult to implement the loop 
+
+# Impute missing data --
+for (r in region_levels){
+  for (m in seq_len(12)){
+    
+    merged_data <- mutate(
+      merged_data,
+      mean_temp_imputted=case_when(
+        region==r & study_date_month==m & is.na(mean_temp) ~ 
+          filter(temp_mean_df, region==r, study_date_month==m) %>% 
+          pull(region_mean_temp), # Assigned mean temp for that month 
+        TRUE~mean_temp_imputted # Else assign measured temp
+        )
+      )
+    } 
+  }
+
+# Replace rest of imputed temp with measured temp (for non-missing temp values)
+merged_data <- mutate(
+  merged_data, 
+  mean_temp_imputted=case_when(is.na(mean_temp_imputted)~mean_temp, TRUE~mean_temp_imputted))
+
+```
+
+
 # Descriptive statistics
 
 Baseline characteristics by levels of TPA
@@ -440,31 +480,33 @@ df_table1 <- make_standardised_ckb_data(
    adjustment_variables=adjust_vars)  
   
 #Filter unwanted categories 
-df_table1 <- filter(df_table1, !grepl("_Other|_Middle.school.or.higher|_Primary|_10k.and.over|_No", exposure))
+df_table1 <- filter(
+  df_table1, 
+  !grepl("_Other|_Middle.school.or.higher|_Primary|_10k.and.over|_No", exposure))
 
 # Standardise age ---
-df_table1_age <- make_standardised_ckb_data(dataset = merged_data, 
-                           numeric_vars = "age",
-                           numeric_vars_labels = "Age, mean (SD), years",
-                           main_exposure = main_expo, 
-                           adjustment_variables = c("sex", "region"))
+df_table1_age <- make_standardised_ckb_data(
+   dataset=merged_data, 
+   numeric_vars="age",
+   numeric_vars_labels="Age, mean (SD), years",
+   main_exposure=main_expo, 
+   adjustment_variables=c("sex", "region"))
 
 df_table1 <- rbind(df_table1, df_table1_age)
-
 
 # Alcohol and smoker by sex ---
 sex_groups <- levels(merged_data$sex)
 sex_specific_vars <- c("ever_reg_smoker", "current_drinkers")
   
 sex_cig_alc <- map_dfr(
-  .x = sex_groups, 
+  .x=sex_groups, 
   ~make_standardised_ckb_data(
-            dataset = merged_data %>% filter(sex == .x),
-            categorical_vars = sex_specific_vars,
-            adjustment_variables = c("age5", "region"), 
-            main_exposure = main_expo, 
-            sex_specific_analysis = TRUE, 
-            sex_var = "sex")) %>% 
+      dataset = merged_data %>% filter(sex == .x),
+      categorical_vars = sex_specific_vars,
+      adjustment_variables = c("age5", "region"), 
+      main_exposure = main_expo, 
+      sex_specific_analysis = TRUE, 
+      sex_var = "sex")) %>% 
   filter(!grepl("_No|_Never", exposure))
 
 df_table1 <- rbind(df_table1, sex_cig_alc)
@@ -507,24 +549,25 @@ Analysis stratified by age-at-risk
 
 ```{r}
 
-numeric_covs <- c("age", 
-                  "heart_rate_mean", 
-                  "waist_circ_cm", 
-                  "bmi_calc", 
-                  "sed_time_hr"
-                  )
-
+numeric_covs <- c(
+  "age", 
+  "heart_rate_mean", 
+  "waist_circ_cm", 
+  "bmi_calc", 
+  "sed_time_hr",
+  "mean_temp_imputted"
+  )
 ordinal_covs <- c("age10", "h_income", "edu")
-
-nominal_covs <- c("area", 
-                  "agric_factory", 
-                  "smoking_status", 
-                  "alcohol_recode", 
-                  "copd", 
-                  "emphysema_bronchitis", 
-                  "diabetes", 
-                  "HTN",
-                  "bmi_cat")
+nominal_covs <- c(
+  "area", 
+  "agric_factory", 
+  "smoking_status", 
+  "alcohol_recode", 
+  "copd", 
+  "emphysema_bronchitis", 
+  "diabetes", 
+  "HTN",
+  "bmi_cat")
 
 strata_vars <- c("sex","region")
 expos       <- c("met_q5", "met")
@@ -532,23 +575,24 @@ expos2      <- c("met_nonwork", "met_nonwork_q5", "met_work", "met_work_q5")
 exclusion   <- c("poor_health", "SOB_walking", "CLD")
 exit_status <- c("HF_combined_ep", "PHD_combined_ep")
 
-date_vars   <- c("HF_combined_datedeveloped", 
-                 "PHD_combined_datedeveloped", 
-                 "study_date", 
-                 "censoring_date", 
-                 "dob_anon") 
+date_vars   <- c(
+   "HF_combined_datedeveloped", 
+   "PHD_combined_datedeveloped", 
+   "study_date", 
+   "censoring_date", 
+   "dob_anon") 
 
 regress_vars <- c(
-      "csid", 
-      numeric_covs, 
-      ordinal_covs, 
-      nominal_covs, 
-      strata_vars, 
-      expos,  
-      expos2,
-      exclusion, 
-      exit_status,
-      date_vars)
+    "csid", 
+    numeric_covs, 
+    ordinal_covs, 
+    nominal_covs, 
+    strata_vars, 
+    expos,  
+    expos2,
+    exclusion, 
+    exit_status,
+    date_vars)
 
 df_reduced <- merged_data %>% select(all_of(regress_vars))
 
@@ -560,16 +604,17 @@ df_reduced <- merged_data %>% select(all_of(regress_vars))
 ```{r}
 
 df_reduced <- 
-  df_reduced %>% 
-     dplyr::group_by(sex) %>% 
-     dplyr::group_split() %>% 
-     map_dfr( 
-       ~dplyr::mutate(
-         .x, 
-         met_q5_sex = factor(quantcut(met, 5), labels = paste0("Q", 1:5)), 
-         met_work_q5_sex = factor(quantcut(met_work, 5), labels = paste0("Q", 1:5)), 
-         met_nonwork_q5_sex = factor(quantcut(met_nonwork, 5), labels = paste0("Q", 1:5)))
-       ) 
+  df_reduced %>%
+  group_by(sex) %>% 
+  group_split() %>% 
+  map_dfr( 
+    ~mutate(
+       .x, 
+       met_q5_sex=factor(quantcut(met, 5), labels=paste0("Q", 1:5)), 
+       met_work_q5_sex=factor(quantcut(met_work, 5), labels=paste0("Q", 1:5)), 
+       met_nonwork_q5_sex=factor(quantcut(met_nonwork, 5), labels=paste0("Q", 1:5))
+       )
+    ) 
      
 ```
 
@@ -606,9 +651,6 @@ data_expanded <- map(
     age_lexis5 = cut(age_lexis, breaks=seq(30, 80, 5), include.lowest=TRUE, right=FALSE))
   )
 
-# Descriptives: Number of events and length of follow-up 
-map(.x = data_expanded, ~ summary.Lexis(.x, timeScales = TRUE))
-
 ```
 
 ## Run cox regression with sequential adjustments
@@ -627,35 +669,31 @@ nominal_covs <- c("agric_factory", "smoking_status", "alcohol_recode",
                   "copd", "emphysema_bronchitis", "diabetes", "HTN")
 main_cov     <- "met_q5_sex"
 
-# Create new variables -----------
+# Create new variables --
 data_expanded <- map(
   .x = data_expanded,
   ~mutate(
     .x, 
-    across(.cols=numeric_covs[-1], 
-           ~factor(quantcut(.x, 4), labels = paste0("Q", 1:4)),
-           .names="{.col}_Q4"),
-    age_sq = age^2
+    across(
+      .cols=numeric_covs[-1], 
+       ~factor(quantcut(.x, 4), labels = paste0("Q", 1:4)),
+       .names="{.col}_Q4")
     ))
 
 # Relabel quintiles to be more informative for forest plots 
-
-# Generate labels 
-# Only use labels for HF
-
 num_var_q     <- paste0(numeric_covs[-1], "_Q4")
 num_var_new   <- numeric_covs[-1]
 
 q_numeric_cov <- map2(
   .x=num_var_q,
   .y=num_var_new,
-  ~data_expanded[[1]] %>% 
-    dplyr::group_by(.data[[.x]]) %>% 
-    summarise(
-      var_min=min(.data[[.y ]]), 
-      var_max=max(.data[[.y ]])) %>% 
-    dplyr::mutate(
-      q_level=.data[[.x ]],
+  ~reframe(
+    data_expanded[[1]], 
+    var_min=min(.data[[.y ]]), 
+    var_max=max(.data[[.y ]]), 
+    .by=all_of(.x)) %>% 
+    mutate(
+      q_level=.data[[.x]],
       q_labels=case_when(
         q_level=="Q1"~paste0(q_level, " (<", round(var_max), ")"),
         q_level=="Q4"~paste0(q_level, " (", round(var_min), "+)"),
@@ -670,7 +708,7 @@ for (df in seq_along(data_expanded)){
   for (vi in seq_along(num_var_q)) {
   
   data_expanded[[df]][ , num_var_q[[vi]] ] <- 
-    factor(data_expanded[[df]][[num_var_q[[vi]]]], labels = q_numeric_cov[[vi]])
+    factor(data_expanded[[df]][[num_var_q[[vi]]]], labels=q_numeric_cov[[vi]])
   
   }
 }
@@ -689,7 +727,7 @@ fu_time        <- "lex.dur"
 events_i       <- "lex.Xst"
 main_cov       <- "met_q5_sex" 
 stratify       <- c("age_lexis5", "sex", "region")
-ses_vars       <- c("h_income", "edu", "agric_factory")
+ses_vars       <- c("h_income", "edu", "agric_factory", "mean_temp_imputted")
 lifestyle_vars <- c("smoking_status", "alcohol_recode", "sed_time_hr", "I(sed_time_hr^2)")
 phys_measure   <- c("heart_rate_mean", "I(heart_rate_mean^2)", 
                     "waist_circ_cm", "I(waist_circ_cm^2)",
@@ -895,7 +933,6 @@ for(aa in seq_along(data_expanded)){
   }
 }
 
-
 ## Assess Cox PH assumption --
 # schoen_resid_hf  <- cox.zph(m_final[[1]]$model_object)
 # schoen_resid_phd <- cox.zph(m_final[[2]]$model_object)
@@ -970,17 +1007,17 @@ for(df in seq_along(data_expanded)){
 FAR_met <- map(.x=FAR, ~pluck(.x, "met"))
 
 # Per 4 MET
-HRLabel <- map2_chr(
+HRLabel <- map(
   .x=model_cont, 
-  .y=c("HR per 4 MET-hour/day usual levels", ""),
   ~pluck(.x, "met") %>% 
-    filter(grepl("4", exposure)) %>% 
     mutate(
-      exposure=.y, # For labelling
-      hr_ci=paste0(format(round(hr_corrected, 2)),  " (",
-                   format(round(lci_corrected, 2)), " - ", 
-                   format(round(uci_corrected, 2)), ")"), 
-      label=paste0(exposure, "\n", hr_ci)) %>% 
+      exposure=c(
+        "Per 4 MET-hour/day: ", 
+        paste0("Per 1 SD (", round(sd(data_expanded[[1]]$met), 1), "): ")), # For labelling
+      hr_ci=paste0(format(round(hr_corrected, 2), nsmall=2),  " (",
+                   format(round(lci_corrected, 2), nsmall=2), " - ", 
+                   format(round(uci_corrected, 2), nsmall=2), ")"), 
+      label=paste0(exposure, hr_ci)) %>% 
     pull(label)
   )
 
@@ -1017,7 +1054,7 @@ SetPage(orient="LANDSCAPE",
         footer="",
         footer.cex=1.2,
         footerspace=0.03,
-        filestem="Figure 1 Shape Plot PA and heart failure")
+        filestem="Figure 1 - Shape Plot PA")
 
 # loop over the panels in a slightly strange order, to match data
 for (j in seq_along(plotdata)){
@@ -1045,7 +1082,7 @@ for (j in seq_along(plotdata)){
 	# add axis labels
 	AxisLabels(
 	  ylab=c("Hazard ratio (95% CI)", "")[j], 
-	  xlab="Usual total physical activity, MET-hour/day", 
+	  xlab="Usual TPA, MET-hour/day", 
 	  mainfont=1.1)
 	
 	par(xpd=NA)
@@ -1054,7 +1091,8 @@ for (j in seq_along(plotdata)){
 	text(x=c(11.5, 15)[j], y=log(2.2), labels=headers[j], font=2, cex = 1.2)
 	
 	# Add labels for HR 
-	text(x=10, y=log(1.7), font=1, cex=0.9, adj=c(0, 0), labels=HRLabel[j])
+	text(x=10, y=log(0.305), font=2, cex=0.9, adj=c(0, 0), labels="HR (95% CI) per higher usual TPA")
+	text(x=10, y=log(0.27), font=1, cex=0.9, adj=c(0, 0), labels=paste0(HRLabel[[j]], collapse="\n"))
 
 }
 
@@ -1074,21 +1112,27 @@ FAR_type_flat <- map(
 
 FAR_type_flat <- c(FAR_type_flat[c(1,3,2,4)]) # Rearrange data for plotting 
 
+sdPA <- map_chr(
+  .x=c("met_work", "met_nonwork"), 
+  ~format(round(sd(data_expanded[[1]][[.x]], na.rm=TRUE), 1), nsmall=1))
+
 # Continuous 
 HRLabTypes <- map(
   .x=model_cont, 
   ~.x[c("met_work", "met_nonwork")]) %>% 
   flatten() %>% 
-  map2_chr(
-    .y=rep(c("HR per 4 MET-hour/day usual levels", ""), 2), 
-    ~filter(.x, grepl("4", exposure)) %>% 
-      mutate(
-      exposure=.y, # For labelling
+  map2(
+    .y=rep(sdPA, 2),
+    ~mutate(
+      .x,
+      exposure=c(
+        "Per 4 MET-hour/day: ", 
+        paste0("Per 1 SD (", .y, "): ")), # For labelling
       hr_ci=paste0(format(round(hr_corrected, 2), nsmall=2),  " (",
                    format(round(lci_corrected, 2), nsmall=2), " - ", 
                    format(round(uci_corrected, 2), nsmall=2), ")"), 
-      label=paste0(exposure, "\n", hr_ci)) %>% 
-    pull(label)
+      label=paste0(exposure, hr_ci)) %>% 
+      pull(label)
   )
 
 HRLabTypes <- HRLabTypes[c(1,3,2,4)]
@@ -1129,16 +1173,14 @@ SetPage(orient="LANDSCAPE",
         page_dpi=300,
         page_pointsize=12,
         suppress.date=TRUE,
-        titlespace=0.07,
-        footer="All analyses were stratified by age-at-risk, sex, and study area and adjusted for income, education, occupation, alcohol, smoking and sedentary time.\n. Additiionally, occupational and non-occupational PA were mututally adjusted for each other\nHF = Heart failure; PHD = Pulmonary heart disease; PA = Physical activity\n
-        ",
+        titlespace=0.01,
         footer.cex = 1.2,
-        footerspace=0.09,
-        filestem="Figure PA type Shape Plot PA and heart failure")
+        footerspace=0.045,
+        filestem="Supplementary eFigure 3 - PA types")
 
 
 # loop over the panels in a slightly strange order, to match data
-for (j in seq_along(plotdata)) {
+for (j in seq_along(plotdata)){
  
 	# do the linear plot for this set of data
 	LinearPlot(plotdata[[j]], 
@@ -1152,7 +1194,7 @@ for (j in seq_along(plotdata)) {
 	           xticklabs         = c("0", "", "10", "", "20", "", "30"),
 	           ylim              = c(0.25, 2), 
 	           yticks            = c(0.25, 0.5, 1, 2), 
-	           margins           = c(3,6,5,5),  
+	           margins           = c(3,5,5,2),  # c(bottom, left, top, right)
 	           xticklabs.cex     = 0.9, 
 	           yticklabs.cex     = 0.9,
 	           PointLabelsTop    = NULL,
@@ -1178,21 +1220,11 @@ for (j in seq_along(plotdata)) {
 	text(x=-8, y=log(2.4), labels=subheaders[j], adj = c(0,0), font=2, cex = 1.05)
 	
 	# Add labels for HR 
-	text(x=0, y=log(0.27), font=1, cex=0.8, adj=c(0, 0), labels=HRLabTypes[j])
+	text(x=0, y=log(0.305), font=2, cex=0.9, adj=c(0, 0), labels="HR (95% CI) per higher usual PA")
+	text(x=0, y=log(0.25), font=1, cex=0.9, adj=c(0, 0), labels=paste0(HRLabTypes[[j]], collapse="\n"))
  }
 
-## Plot title 
-text(x      =-14, 
-     y      = log(90), 
-     font   =2, 
-     cex    = 1.1,
-     adj    =c(0.5, 0),
-     labels ="eFigure 5: Associations of fifths of usual occupational and non-occupational physical activity\nwith heart failure and pulmonary heart disease"
-     )
-
-
 closeFile(type)
-
 
 ```
 
@@ -1278,7 +1310,7 @@ data_expanded <- map(
   ) 
 
 # Redefine age, sex met4 and metSD
-# Redefining Met4 and MetSD makes no difference to the results*********
+# Redefining Met4 and MetSD makes no difference to the results
 data_expanded <- map(
   .x=data_expanded, 
   ~group_by(.x, age_lexis3, sex) %>% 
@@ -1391,8 +1423,6 @@ ivw_FE_all <- map(
     )
   )
 
-cox_strata
-
 ```
 
 
@@ -1488,7 +1518,6 @@ for (j in seq_along(cox_strata)) {
          FillColour=0) %>%  as.data.frame(.)
    # End of for loop
 }
- 
 
 ```
 
@@ -1549,25 +1578,20 @@ SetPage(orient          = "LANDSCAPE",
         perpage         = 1, 
         type            = type, 
         png_bg          = "white",
-        filestem        = "Figure 3 Age-sex association of PA and HF (met4)", 
+        filestem        = "Supplementary eFigure 1 - Age-sex-specific analysis", 
         page_dpi        = 600,
         page_pointsize  = 9,
-        page_height     = 6,
+        page_height     = 5,
         page_width      = 7,
         append_datetime = FALSE, 
         suppress.date   = TRUE, 
         titlespace      = 0.0005, 
-        footerspace     = 0.08, 
+        footerspace     = 0.01, 
         footer.title.allbold = FALSE,
-        footer.cex      = 1, 
-        footer    = "\nAll analyses were stratified by study area and adjusted for income, education, occupation, smoking status, alcohol and sedentary time. 
-The black squares and horizontal lines are the hazard ratios (HRs), 95% confidence intervals (CI), weighted average of group-specific HRs. 
-Standard deviations (SDs) for each trait was recalculated for each age-sex strata. Het = Heterogeneity for sex differences, TPA = Total physical activity
-        
-\n")
+        footer.cex      = 1)
 
 # Set page margins: format is c(bottom, left, top, right)
-par(mar=c(4.14537797266251, 2, 8.14537797266251, 2))
+par(mar=c(4.14537797266251, 2, 5.14537797266251, 2))
 
 mainfont <- 1
 blankPlot(c(0,100),c(0,100), mainfont)
@@ -1713,14 +1737,6 @@ text(x      = column2.xpos,
      cex    = 1, 
      labels = convertUnicode(as.character(df_ageS_forest[[2]][,other.cols[1]]))[blank.rows])
 
-##Plot title 
-# text(x      = 50.5, 
-#      y      = 119, 
-#      font   = 2, 
-#      cex    = 1.2,
-#      adj    = c(0.5, 0),
-#      labels = "Figure 3: Age-sex specific hazard ratio (95% CI) of heart failure and pulmonary heart disease per 4 MET-hr usual\n higher total physical acitivity")
-
 # Heterogeneity labels 
 x_coord <- list("hf"=36.3003646765421, "phd"=82.4423204683451)
 
@@ -1818,7 +1834,6 @@ for (HT in seq_len(n_row_trend[[index]]) ) {
 
 # stop writing to file
 closeFile(type)
-
 
 ```
 
@@ -1926,7 +1941,6 @@ for (jj in seq_along(data_expanded)){
     # Bind datasets --
     cox_strata[[jj]] <- bind_rows(cox_strata_ordinal, cox_strata_nominal)
   }
-
 
 adjustment_vars_labs <- c(
   "income", 
@@ -2119,7 +2133,7 @@ type <- "JPG"
 SetPage(orient          = "PORTRAIT", 
         perpage         = 1, 
         type            = type, 
-        filestem        = "Figure Subgroup_analysis TPA and HF", 
+        filestem        = "Figure 4 - Subgroup analysis", 
         page_dpi        = 600,
         page_pointsize  = 8,
         page_height     = 9,
@@ -2127,15 +2141,7 @@ SetPage(orient          = "PORTRAIT",
         append_datetime = FALSE, 
         suppress.date   = TRUE, 
         titlespace      = 0.045,
-        footerspace     = 0.03
-#         footer.cex      = 1.7, 
-#         footer    = "Analyses were stratified by age-at-risk, sex, and study area and adjusted for income, education, occupation, temperature, temperature\U00B2,\nsmoking status, alcohol, sedentary time, (sedentary time)\U00B2, total physical activity (TPA), TPA\U00B2, heart rate, heart rate\U00B2, body mass index (BMI) and BMI\U00B2
-# 
-# Het = Heterogeneity, MET = Metabolic equivalent of task
-#         \n \n
-# 
-# " 
-        )
+        footerspace     = 0.03)
 
 # Set page margins: format is c(bottom, left, top, right)
 par(mar=c(2.14537797266251, 2, 2.14537797266251, 2))
@@ -2533,7 +2539,7 @@ type <- "JPG"
 SetPage(orient          = "LANDSCAPE", 
         perpage         = 1, 
         type            = type, 
-        filestem        = "eFigure 2 Subgroup analysis by region (met4)", 
+        filestem        = "Supplementary eFigure 2 - Region-specific analysis", 
         page_dpi        = 600,
         page_pointsize  = 9,
         page_height     = 6,
@@ -2726,7 +2732,6 @@ closeFile(type)
 ```
 
 
-
 # Effect of confounding (sequential and adjustment) --
 
 ## Proportion of Chi2 explained by predictors
@@ -2735,303 +2740,176 @@ Compute percentage of Chi2 explained by each predictor
 
 - Basic adjustment will include: stratification by age,sex, and area, and adjustment for education
 
-
 ```{r}
 
 adjustment_vars
 # Create a nested list to hold variable names and labels 
 # Labels will be needed for the forest plot 
 
-sequential_adjust_list <- 
-  list(
-    "minimal adjustment" = c("h_income"), 
-    "ses" = list(
-      "var_names" = c("edu", "agric_factory"), 
-      "var_labels" = c(
-            "     + Education", 
-            "     + Occupation")
-    ),
-    "lifestyle" = list( # Lifestyle --
-      "var_names" = c("smoking_status", "alcohol_recode","sed_time_hr_Q4"), 
-      "var_labels" = c(
-            "    + Smoking",
-            "    + Alcohol consumption",
-            "    + Sedentary time")
-    ), 
-    "cld" = list( #Chronic lung disease --
-      "var_names" = c("copd", "emphysema_bronchitis"), 
-      "var_labels" = c(
-            "    + COPD",
-            "    + Emphysema or bronchitis")
-    )
+sequential_adjust_list <- list(
+  "minimal adjustment"=c("h_income"), 
+  "ses"=list(
+    "var_names"=c("edu", "agric_factory", "mean_temp_imputted"), 
+    "var_labels"=c(
+          "     + Education", 
+          "     + Occupation", 
+          "     + Temperature")
+  ),
+  "lifestyle"=list( # Lifestyle --
+    "var_names"=c("smoking_status", "alcohol_recode","sed_time_hr_Q4"), 
+    "var_labels"=c(
+          "    + Smoking",
+          "    + Alcohol consumption",
+          "    + Sedentary time")
+  )
 )
 
 adjustment_vars <- NULL
 do_print <- FALSE
  
 # 1. Minimal adjustments --
-
-df_minimal <- 
-  
-      map(
-        .x = data_expanded, 
-        ~lrtest_change_chi2(
-            dataset = .x, 
-            main_expo_var  = "met4", 
-            minimal_adjustment = TRUE,
-            stratify_vars  = c("age_lexis5", "sex", "region"), 
-            confounder_adjustment_label = "Minimal adjustment", 
-            adjustment_vars  = sequential_adjust_list$`minimal adjustment`, 
-            print_model_info = do_print)
-        )
+df_minimal <- map(
+  .x=data_expanded,
+  ~lrtest_change_chi2(
+    dataset=.x, 
+    main_expo_var="met4", 
+    minimal_adjustment=TRUE,
+    stratify_vars=c("age_lexis5", "sex", "region"), 
+    confounder_adjustment_label = "Minimal adjustment", 
+    adjustment_vars=sequential_adjust_list$`minimal adjustment`, 
+    print_model_info=do_print)
+  )
   
 # 2. Socioeconomic status --
+# Simplify variable name and label 
 
-  # Simplify variable name and label 
+factors_ses <- sequential_adjust_list$ses$var_names  
+factors_lab_ses <- sequential_adjust_list$ses$var_labels
+  
+df_ses <-  list()
 
-  factors_ses <- sequential_adjust_list$ses$var_names  
-  factors_lab_ses <- sequential_adjust_list$ses$var_labels
-    
-  df_ses <-  list()
+for (df in seq_along(data_expanded)){
   
+  list_ses <- list() 
   
-  for (df in seq_along(data_expanded)) {
+  for (S in seq_along(factors_ses)){
     
+    if(S > 1){
+      adjust_ses <- c(
+        sequential_adjust_list$`minimal adjustment`, # Covariates used for minimal adjustment 
+        factors_ses[ seq_len(S-1) ] # Perform sequential adjustment for previous covariates
+      )
+      } else {adjust_ses <- c(sequential_adjust_list$`minimal adjustment`)}
     
-    list_ses <- list() 
-        
-        for (S in seq_along(factors_ses)){
-          
-          
-          if(S > 1){
-            
-            adjust_ses <- c(
-              
-                sequential_adjust_list$`minimal adjustment`, # Covariates used for minimal adjustment 
-                factors_ses[ seq_len(S-1) ] # Perform sequential adjustment for previous covariates
-             
-                )
-          
-          } else {adjust_ses <- c(sequential_adjust_list$`minimal adjustment`)}
-          
-          
-          list_ses[[S]] <- 
-            
-            lrtest_change_chi2(
-      
-                dataset = data_expanded[[df]], 
-                main_expo_var  = "met4", 
-                confounder_vars = factors_ses[S],
-                stratify_vars  = c("age_lexis5", "sex", "region"), 
-                confounder_adjustment_label = factors_lab_ses[S], 
-                adjustment_vars  = adjust_ses, 
-                minimal_adjustment = FALSE,
-                print_model_info = do_print) 
-          
-          
-          }
+    list_ses[[S]] <- lrtest_change_chi2(
+      dataset=data_expanded[[df]], 
+      main_expo_var="met4", 
+      confounder_vars=factors_ses[S],
+      stratify_vars=c("age_lexis5", "sex", "region"), 
+      confounder_adjustment_label=factors_lab_ses[S], 
+      adjustment_vars=adjust_ses, 
+      minimal_adjustment=FALSE,
+      print_model_info=do_print) 
+    }
 
-    # Combine datasets --
-    df_ses[[df]] <- bind_rows(list_ses)%>% 
-                         dplyr::mutate(name_group = "Demographic and SES factors") # Create group name
-  
+  # Combine datasets --
+  df_ses[[df]] <- mutate(bind_rows(list_ses), name_group="Demographic and SES factors") 
   
   }
-  
-  
+
 # 3. Lifestyle factors --
 
-  # Simplify variable name and label 
+# Simplify variable name and label 
+factors_ls <- sequential_adjust_list$lifestyle$var_names  
+factors_lab_ls <- sequential_adjust_list$lifestyle$var_labels
+  
+df_lifestyle <-  list()
 
-  factors_ls <- sequential_adjust_list$lifestyle$var_names  
-  factors_lab_ls <- sequential_adjust_list$lifestyle$var_labels
-    
-  df_lifestyle <-  list()
+for (df in seq_along(data_expanded)) {
   
+  list_lifestyle <- list() 
   
-  for (df in seq_along(data_expanded)) {
-    
-    
-    list_lifestyle <- list() 
-        
-        for (l in seq_along(factors_ls)){
-          
-          
-          if(l > 1){
-            
-            adjust_ls <- c(
-                
-                sequential_adjust_list$`minimal adjustment`, # Covariates used for minimal adjustment
-                sequential_adjust_list$ses$var_names,        # Covariates used for ses
-                factors_ls[ seq_len(l-1) ] # In addition, adjust for previous lifestyle factors
-             
-                )
-            
-          
-          } else {adjust_ls <- c(sequential_adjust_list$`minimal adjustment`, 
-                                 sequential_adjust_list$ses$var_names)}
-          
-          
-          
-          list_lifestyle[[l]] <- 
-            
-            lrtest_change_chi2(
+  for (l in seq_along(factors_ls)){
+    if(l > 1){
       
-                dataset = data_expanded[[df]], 
-                main_expo_var  = "met4", 
-                confounder_vars = factors_ls[l],
-                stratify_vars  = c("age_lexis5", "sex", "region"), 
-                confounder_adjustment_label = factors_lab_ls[l], 
-                adjustment_vars  = adjust_ls, 
-                minimal_adjustment = FALSE,
-                print_model_info = do_print) 
-          
-          }
-
-    # Combine datasets --
-    df_lifestyle[[df]] <- bind_rows(list_lifestyle)%>% 
-                               dplyr::mutate(name_group = "Lifestyle factors")
-  
-  }
-
-
-# 3. CLD --
-  
-  
-  factors_pm <- sequential_adjust_list$cld$var_names  
-  factors_lab_pm <- sequential_adjust_list$cld$var_labels
-    
-  df_pm <-  list()
-  
-  
-  for (df in seq_along(data_expanded)) {
-    
-    
-    list_pm <- list() 
-        
-        for (p in seq_along(factors_pm)){
-           
-          
-          if(p > 1){
-            
-            adjust_pm <- c(
-                sequential_adjust_list$`minimal adjustment`,
-                sequential_adjust_list$ses$var_names,
-                sequential_adjust_list$lifestyle$var_names,
-                factors_pm[ seq_len(p-1) ] 
-             )
-            
-          
-            } else{
-            
-            adjust_pm <- c(
-                sequential_adjust_list$`minimal adjustment`,
-                sequential_adjust_list$ses$var_names,
-                sequential_adjust_list$lifestyle$var_names
-          
-                )
-            
-          }
-          
-          
-          
-          list_pm[[p]] <- 
-            
-            lrtest_change_chi2(
-      
-                dataset = data_expanded[[df]], 
-                main_expo_var  = "met4", 
-                confounder_vars = factors_pm[p],
-                stratify_vars  = c("age_lexis5", "sex", "region"), 
-                confounder_adjustment_label = factors_lab_pm[p], 
-                adjustment_vars  = adjust_pm, 
-                minimal_adjustment = FALSE,
-                print_model_info = do_print
-                
-              )   
-          
-          }
-
-    # Combine datasets --
-    df_pm[[df]] <- bind_rows(list_pm) %>% 
-                       dplyr::mutate(name_group = "Chronic lung disease")
-  
-  }
-
-
-  # Prepare to bind rest of dataset from the minimally adjusted results ---
-  # Harmonise column names before binding 
-  # Bind datasets 
-  
-   df_minimal_temp <- 
-    
-     map(.x = df_minimal, 
-         ~.x %>% 
-           select(-c(p_value_before, confounder_adjust_before, adjustment)) %>% 
-           mutate(chi2_after = chi2_before) %>%  # For minimally adjusted models, use Chi2 before 
-           rename("df" = df_before)
-         )
-  
-   
-   
-  df_bind_temp <- 
-    
-    map2(
-      .x = df_ses, 
-      .y = df_lifestyle, 
-      ~bind_rows(.x, .y)) %>% 
-    
-   map2(.y = df_pm, 
-        ~bind_rows(.x, .y) %>% 
-          select(-c(p_value_before, 
-                    confounder_adjust_before, 
-                    df_after, 
-                    p_value_after, 
-                    confounder_adjust, 
-                    chi_change)
-                 ) %>% 
-          rename("df" = df_before)
-        
+      adjust_ls <- c(
+        sequential_adjust_list$`minimal adjustment`, # Covariates used for minimal adjustment
+        sequential_adjust_list$ses$var_names,        # Covariates used for ses
+        factors_ls[ seq_len(l-1) ] # In addition, adjust for previous lifestyle factors
         )
-  
-  
-
-  # Bind all datasets --
-  
-  df_mediation <-  map2(
+      } else {adjust_ls <- c(sequential_adjust_list$`minimal adjustment`, sequential_adjust_list$ses$var_names)}
     
-        .x = df_minimal_temp, 
-        .y = df_bind_temp, 
-        ~bind_rows(.x, .y) %>% 
-          
-          mutate(
-            est_corrected = estimate/RDR,   # Correct estimates and SE for regression dilution
-            se_corrected = std.error/RDR,
-            chi2_after = format(round(chi2_after, 1), nsmall = 1, scientific = FALSE),
-            IsDiamond = 0, 
-            FillColour = 1
-            ) %>%  
-          rename("Heading" = adjust_label) %>% 
-         as.data.frame(.)                   # Force into a dataframe for plotting with Jasper
-        
-        )  
-  
+    list_lifestyle[[l]] <- lrtest_change_chi2(
+      dataset = data_expanded[[df]], 
+      main_expo_var  = "met4", 
+      confounder_vars = factors_ls[l],
+      stratify_vars  = c("age_lexis5", "sex", "region"), 
+      confounder_adjustment_label = factors_lab_ls[l], 
+      adjustment_vars  = adjust_ls, 
+      minimal_adjustment = FALSE,
+      print_model_info = do_print) 
+    }
 
-source("J:/DPhil/First year/HF prognosis/Data analysis/My functions/add_table_header.R")
+  # Combine datasets --
+  df_lifestyle[[df]] <- mutate(bind_rows(list_lifestyle), name_group="Lifestyle factors")
 
-df_mediation <- 
-    map(.x = df_mediation,
-        ~dplyr::mutate(.x, name_group = ifelse(is.na(name_group), Heading, name_group)) %>% 
-          add_table_header(data = .,
-                          group_var       = name_group, 
-                          group_level_var = Heading, 
-                          extra_space     = FALSE) %>% 
-          slice(-1) %>%
-          dplyr::mutate(Show = ifelse(is.na(FillColour), NA, 1)) %>%
-          as.data.frame(.)
-        )
+}
 
 
+# Prepare to bind rest of dataset from the minimally adjusted results ---
+df_minimal_temp <- map(
+  .x=df_minimal, 
+  ~select(.x, -c(p_value_before, confounder_adjust_before, adjustment)) %>% 
+    mutate(chi2_after=chi2_before) %>%  # For minimally adjusted models, use Chi2 before 
+    rename("df"=df_before)
+  )
+
+df_bind_temp <- map2(
+  .x=df_ses, 
+  .y = df_lifestyle, 
+  ~bind_rows(.x, .y) %>% 
+    select(-c(
+        p_value_before, 
+        confounder_adjust_before, 
+        df_after, 
+        p_value_after, 
+        confounder_adjust, 
+        chi_change)
+        ) %>% 
+        rename("df"=df_before) 
+    )
+
+# Bind all datasets --
+df_confounding <- map2(
+  .x = df_minimal_temp, 
+  .y = df_bind_temp, 
+  ~bind_rows(.x, .y) %>% 
+    mutate(
+      est_corrected=estimate/RDR_peto[[1]],   # Correct estimates and SE for regression dilution
+      se_corrected=std.error/RDR_peto[[1]],
+      chi2_after=format(round(chi2_after, 1), nsmall = 1, scientific = FALSE),
+      minimal_estimate=as.numeric(.data[["est_corrected"]][1]),
+      cum_hr_delta=((est_corrected-minimal_estimate)/est_corrected)*100, 
+      hr_change100=paste0(format(round(cum_hr_delta, 1), nsmall=1), "%"),
+      IsDiamond=0, 
+      FillColour=1
+      ) %>%  
+    rename("Heading"=adjust_label) %>% 
+    as.data.frame(.) # Force into a dataframe for plotting with Jasper
+  )  
+
+df_confounding <- map(
+  .x=df_confounding,
+  ~mutate(.x, name_group=ifelse(is.na(name_group), Heading, name_group)) %>% 
+    add_table_header(
+      data=.,
+      group_var=name_group, 
+      group_level_var=Heading, 
+      extra_space=FALSE) %>%
+    slice(-1) %>%
+    mutate(Show=ifelse(is.na(FillColour), NA, 1)) %>%
+    as.data.frame(.)
+  )
 
 ```
 
@@ -3039,52 +2917,47 @@ df_mediation <-
 
 ```{r}
 
-n_label <- 
-  
-  map(.x = data_expanded, 
-      ~paste0( "(n=", prettyNum(sum(.x$lex.Xst, na.rm = TRUE), big.mark = ",",  scientific = FALSE),  ")"  ) )
+n_label <- map(
+  .x=data_expanded,
+  ~paste0( "(n=", prettyNum(sum(.x$lex.Xst, na.rm=TRUE), big.mark=",",  scientific=FALSE),  ")"))
 
 # Format dataset ----
-
 # set up an object that stores the forest and associated metadata
 forest1 <- FormatForest(
-              rawdata     = df_mediation[[1]] %>% 
-                                 rename("IsDiamond1" = IsDiamond, 
-                                        "FillColour1" = FillColour,
-                                        "Show1" = Show), 
-              forest.n    = 1, 
-              EstimateCol = "est_corrected",  
-              StdErrCol   = "se_corrected",
-              logData     = FALSE, 
-              getBlanks   = TRUE)
+    rawdata=df_confounding[[1]] %>% 
+      rename("IsDiamond1" = IsDiamond, 
+             "FillColour1" = FillColour,
+             "Show1" = Show), 
+    forest.n    = 1, 
+    EstimateCol = "est_corrected",  
+    StdErrCol   = "se_corrected",
+    logData     = FALSE, 
+    getBlanks   = TRUE)
 
 # set up an object that stores the forest and associated metadata
 forest2 <- FormatForest(
-             rawdata     = df_mediation[[2]] %>% 
-                                 rename(
-                                   "IsDiamond2" = IsDiamond,
-                                   "FillColour2" = FillColour, 
-                                   "Show2" = Show) ,  
-             forest.n    = 2, 
-             EstimateCol = "est_corrected",  
-             StdErrCol   = "se_corrected",
-             logData     = FALSE,  
-             getBlanks   = TRUE)
+     rawdata=df_confounding[[2]] %>% 
+       rename("IsDiamond2"=IsDiamond, 
+              "FillColour2"=FillColour, 
+              "Show2"=Show) ,  
+     forest.n    = 2, 
+     EstimateCol = "est_corrected",  
+     StdErrCol   = "se_corrected",
+     logData     = FALSE,  
+     getBlanks   = TRUE)
 
 blank.rows  <- forest1$blank.rows 
 
 # Format headings to incorporate expressions -----
 
 # find labels to put in the left most column
-left.labels <- convertUnicode(as.character(df_mediation[[1]]$Heading))
-
+left.labels <- convertUnicode(as.character(df_confounding[[1]]$Heading))
 
 # what other columns should be plotted
 other.cols  <- "chi2_after"
 
 # find column headings
-print.headings <- parseColHeadings(df_mediation[[1]]$ColHeadings, rd=df_mediation[[1]])
-
+print.headings <- parseColHeadings(df_confounding[[1]]$ColHeadings, rd=df_confounding[[1]])
 
 # Make forest plot -----
 
@@ -3094,22 +2967,22 @@ SetPage(orient          = "LANDSCAPE",
         png_bg          = "white",
         perpage         = 1, 
         type            = type, 
-        filestem        = "eFigure 1 serial adjustment for confounding", 
-        page_dpi        = 300,
+        filestem        = "Figure 2 - Serial adjustment for confounding", 
+        page_dpi        = 600,
         page_pointsize  = 10,
-        # page_height     = 14,
-        page_width      = 10,
+        page_height     = 6,
+        page_width      = 8,
         append_datetime = FALSE, 
         suppress.date   = TRUE, 
         titlespace      = 0.05, 
-        footerspace     = 0.06, 
-        footer.cex      = 1.5, 
-        footer    = "The minimally adjusted model was stratified by age-at-risk, sex, and all 10 study areas and adjusted for income. 
-COPD = Chronic obstructive pulmonary disease; SES = Socioeconomic status\n\n" 
+        footerspace     = 0.005, 
+        footer.cex      = 1.5 
+#         footer    = "The minimally adjusted model was stratified by age-at-risk, sex, and all 10 study areas and adjusted for income. 
+# COPD = Chronic obstructive pulmonary disease; SES = Socioeconomic status\n\n" 
         )
 
 # Set page margins: format is c(bottom, left, top, right)
-par(mar=c(5.14537797266251, 0.5, 9.14537797266251, 0.5))
+par(mar=c(4.14537797266251, 0.5, 4.14537797266251, 0.5))
 
 mainfont <- 1.0
 blankPlot(c(0,100),c(0,100), mainfont)
@@ -3119,118 +2992,110 @@ spacing <- 1
 plot.width <- 10
 
 # draw the Forest plot(s)
-xaxmin1 <- 24.2542
+xaxmin1 <- 30.2542
 xaxmax1 <- xaxmin1 + plot.width
-
-xaxmin2 <- 63.5592
+xaxmin2 <- 67.5592
 xaxmax2 <- xaxmin2 + plot.width
 
-x_label <- "HR (95% CI) per 4 MET-hr/day\n higher usual total physical acitivity"
+x_label <- "HR (95% CI) per 4 MET-hr/day\n higher usual TPA"
 
 locs <- list()
 
-for (df in seq_along(df_mediation)) {
-  
+for (df in seq_along(df_confounding)) {
   
   locs[[df]] <- ForestBasic( 
-                list(forest1, forest2)[[df]],
-              	LogScale=TRUE,
-              	ExponentiateDataOnPlot=TRUE,
-              	xaxmin= c(xaxmin1, xaxmin2)[df],
-              	xaxmax= c(xaxmax1, xaxmax2)[df],
-              	xlim=c(0.7, 1.1),
-              	xticks=c(0.7, 1.0, 1.1),
-              	ticklabs=c("0.7", "1.0", ""),
-              	xlab= x_label,
-              	NLabel=FALSE,
-              	mainfont=1,
-              	ValueLabels=TRUE,
-              	ValueLabelsHeader="HR (95% CI)",
-              	ValueDigits=NULL,
-              	lwd=0.8,
-              	CISecond=TRUE,
-              	spacing=spacing,
-              	pointGroupsFactor=0.9,
-              	verbose=FALSE,
-              	boxsizeoverride=FALSE,
-              	boxparm.stderr = 0.005)
-
+    list(forest1, forest2)[[df]],
+  	LogScale=TRUE,
+  	ExponentiateDataOnPlot=TRUE,
+  	xaxmin= c(xaxmin1, xaxmin2)[df],
+  	xaxmax= c(xaxmax1, xaxmax2)[df],
+  	xlim=c(0.7, 1.1),
+  	xticks=c(0.7, 1.0, 1.1),
+  	ticklabs=c("0.7", "1.0", ""),
+  	xlab= x_label,
+  	NLabel=FALSE,
+  	mainfont=1,
+  	ValueLabels=TRUE,
+  	ValueLabelsHeader="HR (95% CI)",
+  	ValueDigits=NULL,
+  	lwd=0.8,
+  	CISecond=TRUE,
+  	spacing=spacing,
+  	pointGroupsFactor=0.9,
+  	verbose=FALSE,
+  	boxsizeoverride=FALSE,
+  	boxparm.stderr = 0.009)
 
 # Adding headings and other columns ----
 
 ## Panel titles --
   
-    # Main title --
-    x_main_pos <- c(xaxmin1 + (xaxmax1 - xaxmin1 + (spacing) )/2, 
-                    xaxmin2 + (xaxmax2 - xaxmin2 + (spacing) )/2)
-    text(
-      x= x_main_pos[df] , 
-      y=115, 
-      labels= c("A. Heart failure", "B. Pulmonary heart disease")[df], 
-      adj=c(0.5,0), 
-      font=2, 
-      cex = 1.1, 
-      col="black")
-    
-    # Event title --
-    text(x=x_main_pos[df], y=110, labels= n_label[df], adj=c(0.5,0), font=1, cex = 1)
+  # Main title --
+  x_main_pos <- c(xaxmin1, xaxmin2)
+  text(
+    x= x_main_pos[df] , 
+    y=115, 
+    labels= c("A. Heart failure", "B. Pulmonary heart disease")[df], 
+    adj=c(0,0), 
+    font=2, 
+    cex = 1.1, 
+    col="black")
+  
+  # Event title --
+  # text(x=x_main_pos[df], y=110, labels= n_label[df], adj=c(0.5,0), font=1, cex = 1)
 
-    ## Add other columns for both outcomes --
-    x.positions <- c(xaxmax1 + 18, xaxmax2 + 18)
+  ## Add other columns for both outcomes --
+  x.positions <- c(xaxmax1 + 19.5, xaxmax2 + 20.5)
+  
+  # Header --
+  text(x= x.positions[df], y=100, labels=expression(chi[1]^2), adj=c(1,0), font=2, cex=1)
+  
+  # Contents --
+  if(is.null(blank.rows)){
     
-    # Header --
-    text(x= x.positions[df], y=100, labels=expression(chi[1]^2), adj=c(1,0), font=2, cex=1)
+    text(
+     x=x.positions[df], 
+     y= locs[[df]]$YLocs, 
+     labels=convertUnicode(as.character(df_confounding[[df]] [,other.cols[1]])), 
+     font=ifelse(forest1$IsDiamond, 2, 1),, 
+     adj=1, 
+     cex=1)
     
-    # Contents --
-    if(is.null(blank.rows)){
-      
-      text(
-       x=x.positions[df], 
-       y= locs[[df]]$YLocs, 
-       labels=convertUnicode(as.character(df_mediation[[df]] [,other.cols[1]])), 
-       font=ifelse(forest1$IsDiamond, 2, 1),, 
-       adj=1, 
-       cex=1)
-      
-    } else {
-      
-      text(
-       x=x.positions[df], 
-       y= locs[[df]]$YLocs, 
-       labels=convertUnicode(as.character(df_mediation[[df]] [,other.cols[1]]))[-blank.rows], 
-       font=ifelse(forest1$IsDiamond, 2, 1),, 
-       adj=1, 
-       cex=1)
-      
-    }
+  } else {
     
+    text(
+     x=x.positions[df], 
+     y= locs[[df]]$YLocs, 
+     labels=convertUnicode(as.character(df_confounding[[df]] [,other.cols[1]]))[-blank.rows], 
+     font=ifelse(forest1$IsDiamond, 2, 1),, 
+     adj=1, 
+     cex=1)
     
-    # Labels for blank rows -- 
-    if(is.null(blank.rows)){
-      
-      text(
-       x=x.positions[df],
-       y= locs[[df]]$BlankLocs,
-       labels=convertUnicode(as.character(df_mediation[[df]] [,other.cols[1]])), ,
-       adj=1,
-       cex=1)
-      
-    } else {
-      
-      text(
-       x=x.positions[df],
-       y= locs[[df]]$BlankLocs,
-       labels=convertUnicode(as.character(df_mediation[[df]] [,other.cols[1]]))[blank.rows], ,
-       adj=1,
-       cex=1)
-    }
+  }
+  
+  # Labels for blank rows -- 
+  if(is.null(blank.rows)){
     
+    text(
+     x=x.positions[df],
+     y= locs[[df]]$BlankLocs,
+     labels=convertUnicode(as.character(df_confounding[[df]] [,other.cols[1]])), ,
+     adj=1,
+     cex=1)
+    
+  } else {
+    
+    text(
+     x=x.positions[df],
+     y= locs[[df]]$BlankLocs,
+     labels=convertUnicode(as.character(df_confounding[[df]] [,other.cols[1]]))[blank.rows], ,
+     adj=1,
+     cex=1)
+  }
   
 }
 
-
 # left hand column of labels for HF forest --
-
 text(x=4, y=100, labels="Adjustments", adj=c(0,0), font=2, cex=1.1)
 
   if(is.null(blank.rows)){
@@ -3245,501 +3110,216 @@ text(x=4, y=100, labels="Adjustments", adj=c(0,0), font=2, cex=1.1)
   
   }
 
-
-
-##Plot title 
-text(x=50.5, 
-     y= 125, 
-     font=2, 
-     cex = 1.1,
-     adj=c(0.5, 0),
-     col="black",
-     labels="eFigure 1: Hazard ratio (95% CI) of heart failure and pulmonary heart disease per 4 MET-hr/day higher usual total physical acitivity\nwith sequential adjustment for confounding")
-
 # stop writing to file
 closeFile(type)
 
 ```
 
 
+# Mediation analyses --
 
-# Sensitivity analysis
-
-Sensitivity analysis will include the following 
-
-1. Further adjustments for waist circumference and BMI 
-
-2. Sequential exclusion based on the following criteria 
-  a. Excluding the first two years of follow-up
-  b. Excluding participants with poor self-rated heath at baseline
-  c. Excluding participants with chronic lung disease 
-  d. Excluding participants with SOB on walking at baseline 
-  f. Excluding participants with co-occurring PHD or HF 
-
-**Sex-specific quintiles were recalculated after each exclusion**
-
-Show the association between studied over time? (shape and strength?)
-
+Mediation analysis will investigate the impact of further adjustments for waist circumference, BMI, diabetes, and hypertension on the shape and strength of associations.
 
 ## select relevant variables
 To save memory
 
 ```{r}
 
-adjust <- c(ses_vars, 
-            lifestyle_vars, 
-            "heart_rate_mean_Q4", 
-            "waist_circ_cm_Q4", 
-            "diabetes",  
-            "emphysema_bronchitis", 
-            "HTN",
-            "copd", 
-            "waist_circ_cm_Q4", 
-            "bmi_calc_Q4") 
+adjust <- c(
+  ses_vars, 
+  lifestyle_vars, 
+  "heart_rate_mean",  
+  "diabetes",  
+  "emphysema_bronchitis", 
+  "HTN",
+  "copd", 
+  "waist_circ_cm", 
+  "bmi_calc") 
 
 strata_vars <- c("age_lexis5", "sex","region")
-
 expos       <- c("met_q5_sex", "met4", "metsd", "met")
-
 outcome     <- c("lex.dur", "lex.Xst")
-
 exclusion   <- c("poor_health", "SOB_walking", "CLD")
-
 exit_status <- c("HF_combined_ep", "PHD_combined_ep")
 
+subset_vars <- c(
+  "csid",
+  adjust, 
+  strata_vars, 
+  expos, 
+  outcome, 
+  exclusion, 
+  exit_status)
 
-sensitivity_vars <- c(adjust, strata_vars, expos, outcome, exclusion, exit_status)
-
-# Select variables --------------------------------------------------------------------------------------------------------------------
-
-data_expanded <- map(.x = data_expanded, ~select(.x, all_of(sensitivity_vars)))
+subset_vars <- subset_vars[-which(subset_vars=="I(sed_time_hr^2)")]
+  
+data_expanded <- map(.x = data_expanded, ~select(.x, all_of(subset_vars)))
 
 ```
 
 
-## 1. Further adjustments
+## Further adjustments for mediators
 
-Do further adjustments for BMI, WC, hypertension, and diabetes
+- Do further adjustments for BMI, WC, hypertension, and diabetes.
+- Add quadratic terms to account for non-linearity.
 
 ```{r}
 
-# source("J:/DPhil/First year/HF prognosis/Data analysis/My functions/Cox_shape_strength_data.R")
-
-main_adjust <- c(
-  
-  ses_vars, 
-  lifestyle_vars,   
-  "emphysema_bronchitis", 
-  "copd"
-  
-           ) 
-
-
-sens_adjust_vars <- c(
-  
-  "bmi_calc_Q4", 
-  "waist_circ_cm_Q4", 
-  "diabetes",
-  "HTN"
+main_adjust <- c(ses_vars, lifestyle_vars) 
+mediators <- list(
+  "main_model"    = NULL,
+  "bmi_calc"      = c("bmi_calc", "I(bmi_calc^2)"), 
+  "waist_circ_cm" = c("bmi_calc", "I(bmi_calc^2)", "waist_circ_cm", "I(waist_circ_cm^2)"), 
+  "diabetes"      = c("bmi_calc", "I(bmi_calc^2)", "waist_circ_cm", "I(waist_circ_cm^2)", "diabetes"), 
+  "HTN"           = c("bmi_calc", "I(bmi_calc^2)", "waist_circ_cm", "I(waist_circ_cm^2)", "diabetes", "HTN")
   )
 
 # Create lists to hold data 
-shape_sens1    <- list()
-met_cont_sens1 <- list()
-metsd_sens1    <- list()
+shape_mediation    <- list()
+met_cont_mediation <- list()
+do_print <- FALSE
 
-
-for (m in seq_along(sens_adjust_vars)) { 
+for (O in seq_along(data_expanded)) { 
   
-  sens_adjust_vars_temp <- NULL
-  sens_adjust_vars_temp <- sens_adjust_vars[seq_len(m)]
+  ONamei    <- c("HF", "PHD")[O]
+  # adjust   <- NULL  
+  # adjust   <- c(main_adjust, mediators[[O]])
 
-  adjust <- NULL  
-  adjust <- c(main_adjust, sens_adjust_vars_temp)
+# Shape --
+shape_mediation[[ONamei]] <- map(
+  .x=names(mediators), 
+  ~Cox_shape_strength_data(
+     dataset=data_expanded[[O]], 
+     exposure_var_cat="met_q5_sex", 
+     expo_type_shape=TRUE,
+     correct_regression_dilution=FALSE,
+     adjustment_vars=c(main_adjust, mediators[[.x]]),
+     stratify_vars=strata_vars,
+     print_model_info=do_print
+     ) %>% 
+    pluck(., 2) %>%  
+    mutate(analysis=paste0("Further adjustment for ", paste0(mediators[[.x]], collapse=", "))) %>% 
+    inner_join(
+      ., 
+      select(resurvey_var_data[[1]], -expo_name), 
+      by="exposure"
+    ),
+  .progress=TRUE
+  ) %>% 
+  setNames(names(mediators))
 
-
-# SHape ------------------------------------------------------------------------------------------------------------------
-
-shape_sens1[[m]] <- 
-  
-  map(.x = data_expanded, 
-                   
-       ~Cox_shape_strength_data(
-         
-             dataset                     = .x, 
-             exposure_var_cat            = "met_q5_sex", 
-             expo_type_shape             = TRUE,
-             correct_regression_dilution = FALSE,
-             adjustment_vars             = adjust, 
-             print_model_info = FALSE
-                                      
-      ) %>% 
-         
-       pluck(., 2) %>%
-       dplyr::mutate(PA_resurv_mean = resurv_met_df$mean_met_resurvey,
-                     analysis = paste0("Further adjustment for ",
-                                            paste0(sens_adjust_vars_temp, collapse = ", "))
-                     )
-                     
- )
-
-
-
-# Met4 --------------------------------------------------------------------------------------------------------------------
-  
-met_cont_sens1[[m]] <- 
-    
-    map(
-      
-      .x = data_expanded,
-                   
-         ~Cox_shape_strength_data(
-           
-           dataset                      = .x, 
-           exposure_var_cont           = "met4", 
-           expo_type_continuous        = TRUE,
-           correct_regression_dilution = TRUE, 
-           regression_dilution_ratio   = RDR,
-           adjustment_vars             = adjust, 
-           print_model_info = FALSE
-                                    
-                                    
-           ) %>% 
-           
-           pluck(., 2) %>%
-           dplyr::mutate(analysis = paste0("Further adjustment for ",
-                                            paste0(sens_adjust_vars_temp, collapse = ", ")))
-         
-      )
-
-
-# METSD -------------------------------------------------------------------------------------------------------------------
-
-metsd_sens1[[m]] <- 
-    
-    map(
-      
-      .x = data_expanded,
-                   
-         ~Cox_shape_strength_data(
-           
-           dataset           = .x, 
-           exposure_var_sd   = "metsd",
-           expo_type_sd      = TRUE,
-           correct_regression_dilution = TRUE,
-           adjustment_vars   = adjust, 
-           print_model_info = FALSE
-                                    
-           ) %>% 
-            
-           pluck(., 2) %>%
-           dplyr::mutate(analysis = paste0("Further adjustment for ",
-                                           paste0(sens_adjust_vars_temp, collapse = ", ")))
-         
-      )
+# Met4 --
+met_cont_mediation[[ONamei]] <- map(
+  .x=names(mediators),
+  ~Cox_shape_strength_data(
+     dataset=data_expanded[[O]], 
+     exposure_var_cont="met4", 
+     expo_type_continuous=TRUE,
+     correct_regression_dilution=TRUE, 
+     regression_dilution_ratio=RDR_peto[[1]],
+     adjustment_vars=c(main_adjust, mediators[[.x]]), 
+     stratify_vars=strata_vars,
+     print_model_info=do_print
+     ) %>% 
+    pluck(., 2) %>% 
+    mutate(analysis=paste0("Further adjustment for ", paste0(mediators[[.x]], collapse=", "))),
+  .progress=TRUE
+  ) %>%
+  setNames(names(mediators))
 
 }
 
+# Calculate percent change in logHR 
+hr_main <- map(
+  .x=met_cont_mediation, 
+  ~slice(.x[["main_model"]], 1) %>% pull(est_corrected)) %>% 
+  setNames(c("HF", "PHD"))
 
-```
-
-
-### Re-arrange lists
-
-The exposures should be nested within the datasets. Not the other way around 
-
-That is 
-
-list 1 - Heart failure 
-    Sublists
-       - Exposure 1
-       - Exposure 2
-       - Exposure 3
-       - Exposure 4
-
-list 2 - PHD
-    Sublists
-       - Exposure 1
-       - Exposure 2
-       - Exposure 3
-       - Exposure 4
-       
-Then flatten the list
-
-
-```{r}
-
-shape_sens_df    <- list()
-met_cont_sens_df <- list()
-metsd_sens_df    <- list()
-
-
-for (df in seq_along(data_expanded)) {
+for(M in names(met_cont_mediation)){
   
-  shape_sens_df[[df]]    <- map(.x = shape_sens1, ~pluck(.x, df) %>% 
-                                  dplyr::mutate(outcome = c("hf", "phd")[df])) 
-  
-  met_cont_sens_df[[df]] <- map(.x = met_cont_sens1, ~pluck(.x, df)%>% 
-                                  dplyr::mutate(outcome = c("hf", "phd")[df])) 
-  
-  metsd_sens_df[[df]] <- map(.x = metsd_sens1, ~pluck(.x, df)%>% 
-                                  dplyr::mutate(outcome = c("hf", "phd")[df])) 
-
-}
-
-
-# Bind data for main model (for plotting)
-#========================================
-
-shape_sens_df <- 
-  
-  map2(
-    
-    .x = FAR,
-    .y = seq_along(FAR),
-    
-    ~c(
-      list(.x %>% 
-             # Manipulate column headings 
-             
-             rename("PA_resurv_mean" = mean_met) %>% 
-             dplyr::mutate(
-               
-               analysis = "main", 
-               outcome  = c("hf", "phd")[.y])
-           
-           ), 
-      
-      shape_sens_df[[.y]]
-      
-      )
-    
-)
-
-# Bind MET4 data from main analysis
-#==================================
-
-met_cont_sens_df <- 
-  
-  map2(
-    
-      .x = model_cont,
-      .y = seq_along(model_cont),
-      
-      ~c(
-        list(.x %>% 
-               # Manipulate column headings 
-               filter(exposure == "met4") %>% 
-               rename("term" = exposure) %>% 
-               
-               dplyr::mutate(
-                 
-                 analysis = "main", 
-                 outcome  = c("hf", "phd")[.y])
-             
-             ), 
-        
-        met_cont_sens_df[[.y]]
-        
-        )
-      
-)
-
-
-# Bind METSD data from main analysis
-#====================================
-
-metsd_sens_df <- 
-  
-  map2(
-    
-      .x = model_cont,
-      .y = seq_along(model_cont),
-      
-      ~c(
-        list(.x %>% 
-               # Manipulate column headings 
-               filter(exposure == "metsd") %>% 
-               rename("term" = exposure) %>% 
-               
-               dplyr::mutate(
-                 
-                 analysis = "main", 
-                 outcome  = c("hf", "phd")[.y])
-             
-             ), 
-        
-        metsd_sens_df[[.y]]
-        
-        )
-      
-)
-
-
-
-# Flatten the datasets
-
-shape_sens_df    <- flatten(shape_sens_df)
-met_cont_sens_df <- flatten(met_cont_sens_df)
-metsd_sens_df    <- flatten(metsd_sens_df)
-
-
-```
-
-
-### Plot shape data 
-
-```{r}
-
-# Get plot data 
-#==============
-
-plotdata <- 
-  
-  map (
-    
-    .x = shape_sens_df, 
-    
-    ~data.frame(
-      
-      RF_Level = .x$PA_resurv_mean, 
-      Estimate = .x$estimate, 
-      StdErr   = .x$quasiSE, 
-      Events   = .x$n, 
-      exp_est  =  exp(.x$estimate), 
-      outcome  = .x$outcome
-      
-      ) %>% 
-      
-  `row.names<-`(NULL)
-) 
-
-    
-# Get labels for number of events 
-#================================
-    
-events_sum <- map(
-  
-  .x =shape_sens_df, 
-  
-  ~paste0(
-    
-    "(n=", 
-    prettyNum(sum(.x$n), big.mark   = ",", scientific = FALSE), 
-    ")"
-    
+  met_cont_mediation[[M]] <- map(
+    .x=met_cont_mediation[[M]],
+    ~mutate(
+      .x,
+      delta_logHR=(hr_main[[M]]-est_corrected)/hr_main[[M]]*100, 
+      delta_logHR=paste0(format(round(delta_logHR, 1), nsmall=1), "%")
     )
-                        
-)
+  )
+}
+
+# Simplify lists and prepare for plotting 
+shape_flat    <- flatten(shape_mediation)
+strength_flat <- flatten(met_cont_mediation)
+
+```
+
+## Plot shape (mediators) 
+
+```{r}
+
+plotdata <- map(
+  .x=shape_flat,
+  ~data.frame(
+    RF_Level=.x$resurvey_Qmean, 
+    Estimate=.x$estimate, 
+    StdErr=.x$quasiSE, 
+    Events=.x$n, 
+    exp_est=exp(.x$estimate)) %>% 
+    `row.names<-`(NULL)
+  ) 
+ 
+events_sum <- map(
+  .x=shape_flat, 
+  ~paste0("(n=", prettyNum(sum(.x$n), big.mark=",", scientific=FALSE), ")"))
 
 # Get labels for continuous 
-#==========================
-
-met4_labels <- 
-     map(
-       
-       .x = met_cont_sens_df, 
-         
-         ~.x %>% 
-           dplyr::mutate(
-             
-             term_level  = "4 MET-hour/day", 
-             hr_ci = paste0(
-               
-               format(round(hr_corrected,  2), nsmall = 2L), " (",
-               format(round(lci_corrected, 2), nsmall = 2L), " - ", 
-               format(round(uci_corrected, 2), nsmall = 2L), ")"
-                
-               )
-             
-             ) %>%
-         
-           select(term, term_level, hr_ci, analysis, outcome)
-         )
-    
-# Get labels for metsd
-#=====================
-
-metsd_labels <- 
-     map(
-       
-       .x = metsd_sens_df,  
-         
-         ~.x %>%    
-           dplyr::mutate(
-             
-             term_level = "1 SD MET-hour/day", 
-             hr_ci = paste0(
-               
-               format(round(hr_corrected,  2), nsmall = 2L), " (",
-               format(round(lci_corrected, 2), nsmall = 2L), " - ", 
-               format(round(uci_corrected, 2), nsmall = 2L), ")"
-               
-               )
-             
-             ) %>% 
-         
-           select(term, term_level, hr_ci, analysis, outcome)
-         )
-
-# Bind met4 and metsd 
-#====================
-
-hr_cont_labels <- 
-         
-  map2(
-           
-     .x = met4_labels, 
-     .y = metsd_labels, 
-        
-     ~rbind(.x, .y)
-     
+met4_labels <- map(
+  .x=strength_flat,
+  ~mutate(
+    .x,
+    hr_ci=paste0(
+      format(round(hr_corrected,  3), nsmall=3L), " (",
+      format(round(lci_corrected, 3), nsmall=3L), " - ", 
+      format(round(uci_corrected, 3), nsmall=3L), ")"
+      )
+    ) %>%
+    select(term, hr_ci, delta_logHR, analysis)
   )
-    
-
  
 headers <- c(
-  
   "A: Main model",
   "B: (A) + BMI",
   "C: (B) + WC",
-  "D: (C) + diabetes",
-  "E: (D) + hypertension")
-
+  "D: (C) + Diabetes",
+  "E: (D) + Hypertension")
 
 ## Subheadings for panels: A. Heart failure and B. Pulmonary heart disease 
-n_expo <- length(sens_adjust_vars)
-
+n_expo <- length(mediators)-1
 outcome <- c(
-  
   "Heart failure", 
   rep(NA, n_expo),
-  
   "Pulmonary heart disease", 
-  rep(NA, n_expo)
-  
-  )
+  rep(NA, n_expo))
 
-
-yaxisL  <- c(
-  
+yaxisL <- c(
   "Hazard ratio (95% CI)", 
   rep(NA, n_expo),
-  
   "Hazard ratio (95% CI)", 
-  rep(NA, n_expo)
-  
-  )
+  rep(NA, n_expo))
 
-xaxisL  <- c(rep(NA, n_expo+1), 
-             rep("Usual total physical activity, MET-hour/day", n_expo+1))
+xaxisL <- c(
+  rep(NA, n_expo+1),
+  rep("Usual TPA, MET-hour/day", n_expo+1))
 
+HRLabel <- c(
+  "HR (95% CI) per 4 MET-hour/day\nusual TPA:", rep("HR (95% CI):", 4), 
+  "HR (95% CI) per 4 MET-hour/day\nusual TPA:", rep("HR (95% CI):", 4))
 
+DeltaLabel <- "Reduction in logHR:"
 
 # set up the Jasper page
 type <- "PNG"
 SetPage(
-  
   orient         = "LANDSCAPE",
   perpage        = 10,
   type           = type, 
@@ -3749,24 +3329,17 @@ SetPage(
   page_dpi       = 600,
   page_pointsize = 11,
   suppress.date  = TRUE,
-  titlespace     = 0.12, 
-  footerspace    = 0.06,
-  footer.cex = 1.5,
-  footer  ="The main model was stratified by age-at-risk, sex, and study area and adjusted for income, education, occupation, alcohol, smoking, sedentary time, ephysema, bronchitis and COPD
-  \n
-        ",
-  filestem       = "eFigure 3 - Sensitivity analysis PA (further adjustments)"
-  
-  )
+  titlespace     = 0.05, 
+  footerspace    = 0.02,
+  footer.cex     = 1.5,
+  filestem       = "Figure 4 - Mediation analysis")
 
 par(mar=c(1,1,1,1))
 
-
 # loop over the panels in a slightly strange order, to match data
-for (j in seq_along(plotdata)) {
+for (j in seq_along(plotdata)){
 
 	LinearPlot( 
-	  
 	   plotdata[[j]], 
      new.plot          = TRUE, 
      mainfont          = 1,   
@@ -3784,781 +3357,225 @@ for (j in seq_along(plotdata)) {
      PointLabelsBottom = "Events",
      PointLabelsCEX    = 0.8, 
      TruncateAtPlotLims = FALSE,
-     CIsOnTop           = TRUE
-	   
-	   )
+     CIsOnTop           = TRUE)
 	
 	# add axis labels
-	AxisLabels(ylab=yaxisL[[j]],  
-	           xlab=xaxisL[[j]], 
-	           mainfont=0.9)
-	
+	AxisLabels(ylab=yaxisL[[j]], xlab=xaxisL[[j]], mainfont=1)
 	par(xpd=NA)
 	
-	
 	# add the column heading
-	
 	if(j <= n_expo+1) {
-	 text(x=20, y=log(3.2), labels=headers[j], font=2, cex = 1)
+	 text(x=20, y=log(2.8), labels=headers[j], font=2, cex=1.2)
 	}
-	
-	 text(x=20,  y=log(1.9), labels = events_sum[[j]], font=1, cex = 1)
-	 text(x=10,  y=log(2.2), labels = outcome[[j]], font=2, adj=c(0,0), cex = 1.2)
-	
+	 # text(x=20,  y=log(1.9), labels=events_sum[[j]], font=1, cex=1)
+	 text(x=10,  y=log(2.2), labels=outcome[[j]], font=2, adj=c(0,0), cex=1.2)
 	
 	# Add labels for HR 
-	text(x      = 10, 
-	     y      = log(0.26), 
-	     labels = paste0("Per usual level\n", paste0(hr_cont_labels[[j]]$term_level, ":", collapse = "\n")), 
-	     font   = 1, 
-	     cex    = 0.8, 
-	     adj    = c(0, 0)
-	     )
-	
-	text(x      = 20.5, 
-	     y      = log(0.26), 
-	     labels = paste0("HR (95% CI)\n", paste0(hr_cont_labels[[j]]$hr_ci, collapse = "\n")), 
-	     font   = 1, 
-	     cex    = 0.8, 
-	     adj    = c(0, 0)
-	     )
+	text(x=10, y=log(0.32), font=1, cex=0.9, adj=c(0, 0), labels=paste(HRLabel[j], met4_labels[[j]]$hr_ci))
+	text(x=10, y=log(0.28), font=1, cex=0.9, adj=c(0, 0), labels=paste(DeltaLabel, met4_labels[[j]]$delta_logHR))
+	}
 
- 
-  
-}
-
-## Plot title 
-##Plot title
-
-new.plot=TRUE
-
-text(x      = -45, 
-     y      = log(82), 
-     font   = 2, 
-     cex    = 1.3,
-     adj    = c(0.5, 0),
-     labels = "eFigure 3: Associations of total physical activity with heart failure and pulmonary heart disease after further sequential adjustment for body mass index (BMI), \nwaist circumference (WC), diabetes and hypertension")
-
+# new.plot=TRUE
 
 closeFile(type)
 
-
-
-
-
-
 ```
 
 
-## Further exclusion
+# Sensitivity analysis --
 
-## 2. Exclude 2 years follow up
+## Import resurvey data and join 
 
 ```{r}
-
-# Drop merged data to free memory
-rm(merged_data)
-
-adjust <- c(ses_vars, 
-            lifestyle_vars,  
-            "emphysema_bronchitis", 
-            "copd") 
-
-# Drop follow up time 
-data_expanded_fu2 <- map(.x = data_expanded, ~.x[.x$lex.dur > 2, ])
-
-# Recalculate met4, metsd, sex-specific Q5 ---------------------------------------------------------------------------------------------
-data_expanded_fu2 <- 
-  
-  map(.x = data_expanded_fu2, 
-    
-    ~.x %>% dplyr::group_by(sex) %>% 
-                   dplyr::group_split() %>% 
-                   map( ~ .x %>% 
-                           dplyr::mutate(met_q5_sex = factor(quantcut(met, 5), 
-                                                             labels = c("Q1", "Q2", "Q3", "Q4", "Q5")), 
-                                         
-                                         met4       = met/4, 
-                                         metsd      = scale(met)
-                                         )
-                        ) %>%
-            map_dfr( ~rbind(.x))
-      )
-
-# Shape ------------------------------------------------------------------------------------------------------------------
-
-shape_fu2 <- map(.x = data_expanded_fu2, 
-                   
-                   ~Cox_shape_strength_data(dataset                      = .x, 
-                                             exposure_var_cat            = "met_q5_sex", 
-                                             expo_type_shape             = TRUE,
-                                             correct_regression_dilution = FALSE,
-                                             adjustment_vars             = adjust, 
-                                             print_model_info = FALSE ) %>% 
-                     
-                     pluck(., 2) %>% 
-                     dplyr::mutate(PA_resurv_mean = resurv_met_df$mean_met_resurvey, 
-                                   analysis       = "Exclude 2 years follow up")
-                   )
-
-
-
-
-# Met4 --------------------------------------------------------------------------------------------------------------------
-  
-met_cont_fu2 <- map(.x = data_expanded_fu2,
-                   
-         ~Cox_shape_strength_data(dataset                      = .x, 
-                                   exposure_var_cont           = "met4", 
-                                   expo_type_continuous        = TRUE,
-                                   correct_regression_dilution = TRUE, 
-                                   regression_dilution_ratio   = RDR,
-                                   adjustment_vars             = adjust, 
-                                   print_model_info = FALSE) %>% 
-           
-           pluck(., 2) %>% 
-           dplyr::mutate(analysis = "Exclude 2 years follow up")
-         )
-
-
-# METSD -------------------------------------------------------------------------------------------------------------------
-
-metsd_fu2 <- map(.x = data_expanded_fu2,
-                   
-         ~Cox_shape_strength_data(dataset           = .x, 
-                                  exposure_var_sd   = "metsd",
-                                  expo_type_sd      = TRUE,
-                                  correct_regression_dilution = TRUE,
-                                  adjustment_vars   = adjust,
-                                  print_model_info = FALSE) %>% 
-            
-           pluck(., 2) %>% 
-           dplyr::mutate(analysis = "Exclude 2 years follow up")
-         )
-
-rm(data_expanded_fu2)
+data_expanded <- map(
+  .x=data_expanded,
+  ~left_join(.x, resurv_merged_met %>% select(csid, resurv_ave), by="csid"))
 
 ```
 
-
-## 3. Exclude poor self-rated health 
-
-```{r}
-
-adjust <- c(ses_vars, 
-            lifestyle_vars, 
-            "emphysema_bronchitis", 
-            "copd"
-           ) 
-
-# Drop 
-## 1. follow up time +
-## 2. Poor health + 
-
-data_expanded_poorh <- map(.x = data_expanded, 
-                           ~.x[.x$lex.dur > 2, ] %>% 
-                             filter (poor_health == "No")
-                           )
-
-
-# Calculate sex-specific Q5 ---------------------------------------------------------------------------------------------
-data_expanded_poorh <- 
-  
-  map(.x = data_expanded_poorh, 
-    
-    ~.x %>% dplyr::group_by(sex) %>% 
-                   dplyr::group_split() %>% 
-                   map( ~ .x %>% 
-                           dplyr::mutate(met_q5_sex = factor(quantcut(met, 5), 
-                                                             labels = c("Q1", "Q2", "Q3", "Q4", "Q5")), 
-                                         
-                                         met4       = met/4, 
-                                         metsd      = scale(met)
-                                         )
-                        ) %>%
-            map_dfr( ~rbind(.x))
-      )
-
-
-# Shape -----------------------------------------------------------------------------------------------------------------
-
-shape_poorh <- map(.x = data_expanded_poorh, 
-                   
-                   ~Cox_shape_strength_data(dataset                      = .x, 
-                                             exposure_var_cat            = "met_q5_sex", 
-                                             expo_type_shape             = TRUE,
-                                             correct_regression_dilution = FALSE,
-                                             adjustment_vars             = adjust, 
-                                             print_model_info = FALSE) %>% 
-                     
-                     pluck(., 2) %>% 
-                     dplyr::mutate(PA_resurv_mean = resurv_met_df$mean_met_resurvey, 
-                                   analysis       = "2 years fu + poor health")
-                   )
-
-
-
-
-# Met4 --------------------------------------------------------------------------------------------------------------------
-  
-met_cont_poorh <- map(.x = data_expanded_poorh,
-                   
-         ~Cox_shape_strength_data(dataset                      = .x, 
-                                   exposure_var_cont           = "met4", 
-                                   expo_type_continuous        = TRUE,
-                                   correct_regression_dilution = TRUE, 
-                                   regression_dilution_ratio   = RDR,
-                                   adjustment_vars             = adjust, 
-                                   print_model_info = FALSE
-                                    
-                                    ) %>% 
-           
-           pluck(., 2) %>% 
-           dplyr::mutate(analysis = "2 years fu + poor health")
-         )
-
-
-# METSD -------------------------------------------------------------------------------------------------------------------
-
-metsd_poorh <- map(.x = data_expanded_poorh,
-                   
-         ~Cox_shape_strength_data(dataset           = .x, 
-                                  exposure_var_sd   = "metsd",
-                                  expo_type_sd      = TRUE,
-                                  correct_regression_dilution = TRUE,
-                                  adjustment_vars   = adjust, 
-                                  print_model_info = FALSE) %>% 
-            
-           pluck(., 2) %>% 
-           dplyr::mutate(analysis = "2 years fu + poor health")
-         )
-
-rm(data_expanded_poorh)
-
-```
-
-
-## 4. Exclude participants with SOB at baseline 
+## Run sensitivity analysis 
 
 ```{r}
 
-
-adjust <- c(ses_vars, 
-            lifestyle_vars,  
-            "emphysema_bronchitis", 
-            "copd") 
-
-# Drop 
-## 1. follow up time +
-## 2. Poor health + 
-
-data_expanded_sob <- map(.x = data_expanded, 
-                           ~.x[.x$lex.dur > 2, ] %>% 
-                             filter (poor_health == "No", 
-                                     SOB_walking == "No")
-                           )
-
-
-# Calculate sex-specific Q5 ---------------------------------------------------------------------------------------------
-data_expanded_sob <- 
-  
-  map(.x = data_expanded_sob, 
-    
-    ~.x %>% dplyr::group_by(sex) %>% 
-                   dplyr::group_split() %>% 
-                   map( ~ .x %>% 
-                           dplyr::mutate(met_q5_sex = factor(quantcut(met, 5), 
-                                                             labels = c("Q1", "Q2", "Q3", "Q4", "Q5")), 
-                                         
-                                         met4       = met/4, 
-                                         metsd      = scale(met)
-                                         )
-                        ) %>%
-            map_dfr( ~rbind(.x))
-      )
-
-# Shape -----------------------------------------------------------------------------------------------------------------
-shape_sob <- map(.x = data_expanded_sob, 
-                   
-                   ~Cox_shape_strength_data(dataset                      = .x, 
-                                             exposure_var_cat            = "met_q5_sex", 
-                                             expo_type_shape             = TRUE,
-                                             correct_regression_dilution = FALSE,
-                                             adjustment_vars             = adjust, 
-                                             print_model_info = FALSE
-                                              
-                                              ) %>% 
-                     
-                     pluck(., 2) %>% 
-                     dplyr::mutate(PA_resurv_mean = resurv_met_df$mean_met_resurvey, 
-                                   analysis       = "2 years fu + poor health + SOB")
-                   )
-
-
-
-
-# Met4 --------------------------------------------------------------------------------------------------------------------
-  
-met_cont_sob <- map(.x = data_expanded_sob,
-                   
-         ~Cox_shape_strength_data(dataset                      = .x, 
-                                   exposure_var_cont           = "met4", 
-                                   expo_type_continuous        = TRUE,
-                                   correct_regression_dilution = TRUE, 
-                                   regression_dilution_ratio   = RDR,
-                                   adjustment_vars             = adjust, 
-                                  print_model_info = FALSE
-                                    
-                                    ) %>% 
-           
-           pluck(., 2) %>% 
-           dplyr::mutate(analysis = "2 years fu + poor health + SOB")
-         )
-
-
-# METSD -------------------------------------------------------------------------------------------------------------------
-
-metsd_sob <- map(.x = data_expanded_sob,
-                   
-         ~Cox_shape_strength_data(dataset           = .x, 
-                                  exposure_var_sd   = "metsd",
-                                  expo_type_sd      = TRUE,
-                                  correct_regression_dilution = TRUE,
-                                  adjustment_vars   = adjust,
-                                  print_model_info = FALSE
-                                    
-                                    ) %>% 
-            
-           pluck(., 2) %>% 
-           dplyr::mutate(analysis = "2 years fu + poor health + SOB")
-         )
-
-rm(data_expanded_sob)
-
-
-```
-
-
-## 5. Exclude chronic lung disease 
-
-Chronic lung disease in this analysis includes 
-- COPD
-- TB
-- Emphysema or bronchitis
-- Asthma
-
-
-```{r}
-
-
-adjust <- c(ses_vars, lifestyle_vars) 
-
-# Drop 
-## 1. follow up time +
-## 2. Poor health + 
-
-data_expanded_cld <- map(.x = data_expanded, 
-                           ~.x[.x$lex.dur > 2, ] %>% 
-                             filter (poor_health == "No", 
-                                     SOB_walking == "No", 
-                                     CLD         == "No")
-                           )
-
-
-# Calculate sex-specific Q5 ---------------------------------------------------------------------------------------------
-data_expanded_cld <- 
-  
-  map(.x = data_expanded_cld, 
-    
-    ~.x %>% dplyr::group_by(sex) %>% 
-                   dplyr::group_split() %>% 
-                   map( ~ .x %>% 
-                           dplyr::mutate(met_q5_sex = factor(quantcut(met, 5), 
-                                                             labels = c("Q1", "Q2", "Q3", "Q4", "Q5")), 
-                                         
-                                         met4       = met/4, 
-                                         metsd      = scale(met)
-                                         )
-                        ) %>%
-            map_dfr( ~rbind(.x))
-      )
-
-# Shape -----------------------------------------------------------------------------------------------------------------
-shape_cld <- map(.x = data_expanded_cld, 
-                   
-                   ~Cox_shape_strength_data(dataset                      = .x, 
-                                             exposure_var_cat            = "met_q5_sex", 
-                                             expo_type_shape             = TRUE,
-                                             correct_regression_dilution = FALSE,
-                                             adjustment_vars             = adjust, 
-                                             print_model_info = FALSE) %>% 
-                     
-                     pluck(., 2) %>% 
-                     dplyr::mutate(PA_resurv_mean = resurv_met_df$mean_met_resurvey, 
-                                   analysis       = "2 years fu + poor health + SOB + CLD")
-                   )
-
-
-
-
-# Met4 --------------------------------------------------------------------------------------------------------------------
-  
-met_cont_cld <- map(.x = data_expanded_cld,
-                   
-         ~Cox_shape_strength_data(dataset                      = .x, 
-                                   exposure_var_cont           = "met4", 
-                                   expo_type_continuous        = TRUE,
-                                   correct_regression_dilution = TRUE, 
-                                   regression_dilution_ratio   = RDR,
-                                   adjustment_vars             = adjust, 
-                                   print_model_info = FALSE) %>% 
-           
-           pluck(., 2) %>% 
-           dplyr::mutate(analysis = "2 years fu + poor health + SOB + CLD")
-         )
-
-
-# METSD -------------------------------------------------------------------------------------------------------------------
-
-metsd_cld <- map(.x = data_expanded_cld,
-                   
-         ~Cox_shape_strength_data(dataset           = .x, 
-                                  exposure_var_sd   = "metsd",
-                                  expo_type_sd      = TRUE,
-                                  correct_regression_dilution = TRUE,
-                                  adjustment_vars   = adjust,
-                                  print_model_info = FALSE) %>% 
-            
-           pluck(., 2) %>% 
-           dplyr::mutate(analysis = "2 years fu + poor health + SOB + CLD")
-         )
-    
-rm(data_expanded_cld)
-
-
-
-```
-
-
-# 6. HF and PHD co-occurrence 
-```{r}
-
-
-# Continue here ---------------------------------------------------------------------------------------------------------------
-
-adjust <- c(ses_vars, lifestyle_vars) 
-
-# Drop 
-## 1. follow up time +
-## 2. Poor health + 
-
-data_expanded_co_hf_phd <- map(.x = data_expanded, 
-                               ~.x[.x$lex.dur > 2, ] %>% 
-                                 filter (poor_health == "No", 
-                                         SOB_walking == "No", 
-                                         CLD         == "No") %>% 
-                                 #Define co-morbid HF and PHD 
-                                 dplyr::mutate(co_hf_phd = ifelse(HF_combined_ep == 1 & PHD_combined_ep == 1, "Yes", "No")) %>% 
-                                 filter(co_hf_phd == "No")
-                              )
-
-
-# Calculate sex-specific Q5 ---------------------------------------------------------------------------------------------
-data_expanded_co_hf_phd <- 
-  
-  map(.x = data_expanded_co_hf_phd, 
-    
-    ~.x %>% dplyr::group_by(sex) %>% 
-                   dplyr::group_split() %>% 
-                   map( ~ .x %>% 
-                           dplyr::mutate(met_q5_sex = factor(quantcut(met, 5), 
-                                                             labels = c("Q1", "Q2", "Q3", "Q4", "Q5")), 
-                                         
-                                         met4       = met/4, 
-                                         metsd      = scale(met)
-                                         )
-                        ) %>%
-            map_dfr( ~rbind(.x))
-      )
-
-# Shape -----------------------------------------------------------------------------------------------------------------
-shape_hf_phd <- map(.x = data_expanded_co_hf_phd, 
-                   
-                   ~Cox_shape_strength_data(dataset                      = .x, 
-                                             exposure_var_cat            = "met_q5_sex", 
-                                             expo_type_shape             = TRUE,
-                                             correct_regression_dilution = FALSE,
-                                             adjustment_vars             = adjust, 
-                                             print_model_info = FALSE) %>% 
-                     
-                     pluck(., 2) %>% 
-                     dplyr::mutate(PA_resurv_mean = resurv_met_df$mean_met_resurvey, 
-                                   analysis       = "2 years fu + poor health + SOB + CLD + co-HF and PHD")
-                   )
-
-
-
-
-# Met4 --------------------------------------------------------------------------------------------------------------------
-  
-met_cont_hf_phd <- map(.x = data_expanded_co_hf_phd,
-                   
-         ~Cox_shape_strength_data(dataset                      = .x, 
-                                   exposure_var_cont           = "met4", 
-                                   expo_type_continuous        = TRUE,
-                                   correct_regression_dilution = TRUE, 
-                                   regression_dilution_ratio   = RDR,
-                                   adjustment_vars             = adjust, 
-                                   print_model_info = FALSE) %>% 
-           
-           pluck(., 2) %>% 
-           dplyr::mutate(analysis = "2 years fu + poor health + SOB + CLD + co-HF and PHD")
-         )
-
-
-# METSD -------------------------------------------------------------------------------------------------------------------
-
-metsd_hf_phd <- map(.x = data_expanded_co_hf_phd,
-                   
-         ~Cox_shape_strength_data(dataset           = .x, 
-                                  exposure_var_sd   = "metsd",
-                                  expo_type_sd      = TRUE,
-                                  correct_regression_dilution = TRUE,
-                                  adjustment_vars   = adjust, 
-                                  print_model_info = FALSE) %>% 
-            
-           pluck(., 2) %>% 
-           dplyr::mutate(analysis = "2 years fu + poor health + SOB + CLD + co-HF and PHD")
-         )
-
-rm(data_expanded_co_hf_phd)
-
-
-
-```
-
-
-## Bind all data for sensitivity analysis 
-
-```{r}
-
-shape      <- map(.x = seq_along(shape_fu2), 
-                  ~c(shape_fu2[.x], 
-                     shape_poorh[.x], 
-                     shape_sob[.x], 
-                     shape_cld[.x], 
-                     shape_hf_phd[.x]
-                     )
-                  )
-
-strng_cont <- map(.x = seq_along(met_cont_fu2), 
-                  ~c(met_cont_fu2[.x], 
-                     met_cont_poorh[.x], 
-                     met_cont_sob[.x], 
-                     met_cont_cld[.x], 
-                     met_cont_hf_phd[.x]
-                     )
-                  )
-
-metsd      <- map(.x = seq_along(metsd_fu2),
-                  ~c(metsd_fu2[.x], 
-                     metsd_poorh[.x], 
-                     metsd_sob[.x], 
-                     metsd_cld[.x], 
-                     metsd_hf_phd[.x]
-                     )
-                  )
-```
-
-
-## Plot data for sensitivity analysis 
-
-```{r}
-
-
-# select which columns we want, and give them appropriate names
-plotdata   <- list()
-events_sum <- list()
-
-hr_cont_labels <- list()
-met4_labels    <- list()
-metsd_labels   <- list()
-
-for (sh in seq_along(shape)) {
-  
-    plotdata[[sh]] <- map(.x = shape[[sh]], ~data.frame(RF_Level = resurv_met_df$mean_met_resurvey, 
-                                                        Estimate = .x$estimate, 
-                                                        StdErr   = .x$quasiSE, 
-                                                        Events   = .x$n, 
-                                                        exp_est  = exp(.x$estimate)
-                                                        ) %>% 
-                                             `row.names<-`(NULL)
-                          )
-    
-    # Get labels for number of events 
-    events_sum[[sh]] <- map(.x = shape[[sh]], ~paste0("(n=", 
-                                                      prettyNum(sum(.x$n), 
-                                                                big.mark   = ",", 
-                                                                scientific = FALSE), 
-                                                      ")")
-                            )
-    
-    # Get labels for continuous 
-    met4_labels[[sh]] <- 
-             map(.x = strng_cont[[sh]], 
-                 
-                 ~.x %>% 
-                   dplyr::mutate(term_level  = "4 MET-hour/day", 
-                                 hr_ci = paste0(format(round(hr_corrected,  2), nsmall = 2L), " (",
-                                                format(round(lci_corrected, 2), nsmall = 2L), " - ", 
-                                                format(round(uci_corrected, 2), nsmall = 2L), ")")) %>% 
-                   select(term, term_level, hr_ci, analysis)
-                 )
-    
-    # Get labels for metsd
-    metsd_labels[[sh]] <- 
-             map(.x = metsd[[sh]], 
-                 
-                 ~.x %>%  
-                   dplyr::mutate(term_level  = "1 SD MET-hour/day", 
-                                 hr_ci = paste0(format(round(hr_corrected,  2), nsmall = 2L), " (",
-                                                format(round(lci_corrected, 2), nsmall = 2L), " - ", 
-                                                format(round(uci_corrected, 2), nsmall = 2L), ")")) %>% 
-                   select(term, term_level, hr_ci, analysis)
-                 )
-    
-    # Bind met4 and metsd 
-    hr_cont_labels[[sh]] <- 
-             map2(.x = met4_labels[[sh]], 
-                  .y = metsd_labels[[sh]], 
-                  
-                  ~rbind(.x, .y))
-    
-} 
+# Define HF and PHD co-occurrence -- 
+data_expanded <- map(
+  .x = data_expanded, 
+  ~mutate(.x, co_hf_phd=ifelse(HF_combined_ep==1 & PHD_combined_ep==1, "Yes", "No")))
+
+# Create list of exclusions 
+exclusions <- list(
+  "fu"=list("expression"="lex.dur>2", "label"="A: Excluding the first two years of follow-up"), 
+  "poor health"=list("expression"="lex.dur>2 & poor_health=='No'", "label"="B: (A) + excluding poor self-rated health"),
+  "CLD"=list("expression"="lex.dur>2 & poor_health=='No' & CLD=='No'", "label"="C: (B) + excluding shortness of breath on walking"),
+  "SOB"=list("expression"="lex.dur>2 & poor_health=='No' & CLD=='No' & SOB_walking=='No'", "label"="D: (C) + excluding chronic respiratory disease"),
+  "HF_PHD"=list("expression"="lex.dur>2 & poor_health=='No' & CLD=='No' & SOB_walking=='No' & co_hf_phd=='No'", "label"="E: (D) + excluding co-occurring HF and PHD")) 
+
+shape_list <- list() 
+strength_list <- list()
+
+outcome_name <- c("hf", "phd")
+
+for(kk in seq_along(exclusions)){
  
-
-headers <- c("A: Excluding the first two years\nof follow-up",
-             "B: (A) + excluding poor self-rated health",
-             "C: (B) + excluding shortness of breath\n on walking",
-             "D: (C) + excluding chronic \nrespiratory disease",
-             "E: (D) + excluding co-occurring HF\nand PHD")
-
-
-## Subheadings for panels: A. Heart failure and B. Pulmonary heart disease 
-outcome <- list(c("Heart failure", rep(NA, 4)),
-                c("Pulmonary heart disease", rep(NA, 4)))
-
-yaxisL  <- list(c("Hazard ratio (95% CI)", rep(NA, 4)),
-                c("Hazard ratio (95% CI)", rep(NA, 4)))
-
-xaxisL  <- list(rep(NA, 5), 
-                rep("Usual total physical activity, MET-hour/day", 5))
-
-
-
-# set up the Jasper page
-type <- "PNG"
-SetPage(orient         = "LANDSCAPE",
-        perpage        = 10,
-        type           = type, 
-        png_bg = "white",
-        page_width     = 18,
-        page_height    = 12,
-        page_dpi       = 600,
-        page_pointsize = 11.5,
-        suppress.date  = TRUE,
-        titlespace     = 0.13, 
-        footerspace    = 0.06,
-        filestem       = "eFigure 4 - Sensitivity analysis PA (exclusion)", 
-        footer.cex      = 1.5, 
-        footer    = "Analyses were stratified by age-at-risk, sex, and study area and adjusted for income, education, occupation, alcohol, smoking, sedentary time, ephysema, bronchitis and COPD (where applicable)
-        
-        \n \n")
-
-
-# loop over the panels in a slightly strange order, to match data
-for (j in seq_along(plotdata)) {
+  exclude_temp <- names(exclusions)[kk]
   
-  for (k in seq_along(plotdata[[1]])) {
+  # Start message --- 
+  cat("Running analysis for ", exclude_temp, "\n")
+  
+  # Perform exclusion -- 
+  dat_temp <- map(
+    .x=data_expanded, 
+    ~filter(.x, eval(parse(text=exclusions[[kk]]$expression))))
+  
+  # Recalculate met4, metsd, sex-specific Q5 --
+  dat_temp <- map(
+    .x=dat_temp,
+    ~group_by(.x, sex) %>% 
+      group_split() %>% 
+      map(
+        ~mutate(
+           .x, 
+           met_q5_sex=factor(quantcut(met, 5), labels = paste0("Q", 1:5)),
+           met4=met/4, 
+           metsd=scale(met))
+         ) %>%
+      map_dfr( ~rbind(.x))
+    )
+  
+  # Recalculate the quintile-specific resurvey --
+  met_means <- map(
+    .x=dat_temp, 
+    ~reframe(.x, resurv_mean=mean(resurv_ave, na.rm=TRUE), .by="met_q5_sex") %>% 
+      mutate(exposure=as.character(met_q5_sex)) %>% 
+      select(exposure, resurv_mean)
+    )
+
+  # Shape ---
+  shape_fu2 <- map2(
+    .x=dat_temp, 
+    .y=seq_along(dat_temp),
+    ~Cox_shape_strength_data(
+      dataset                     = .x, 
+      exposure_var_cat            = "met_q5_sex", 
+      expo_type_shape             = TRUE,
+      correct_regression_dilution = FALSE,
+      adjustment_vars             = c(ses_vars, lifestyle_vars),  
+      stratify_vars               = stratify,
+      print_model_info            = FALSE) %>% 
+     pluck(., 2) %>% 
+      inner_join(., met_means[[.y]], by="exposure") %>% 
+      mutate(
+        analysis=exclusions[[kk]]$label, 
+        resurv_mean=format(round(resurv_mean, 2), nsmall=2),
+        HR=exp(estimate), 
+        LCI=exp(estimate-1.96*std.error), 
+        UCI=exp(estimate+1.96*std.error),
+        HRCI=paste0(
+          format(round(HR,  2), nsmall=2L), " (",
+          format(round(LCI, 2), nsmall=2L), " - ", 
+          format(round(UCI, 2), nsmall=2L), ")"), 
+        p.value=NA_character_
+        ) %>% 
+      select(analysis, exposure, resurv_mean, n, HRCI,  p.value), 
+    .progress=TRUE) %>% 
+    setNames(outcome_name)
+
+  shape_list[[exclude_temp]] <- shape_fu2 
+  
+  # Strength --
+  cont_fu2 <- list()
+  
+  for (o in seq_along(outcome_name)){
     
- 
-	# do the linear plot for this set of data
-	LinearPlot(plotdata[[j]][[k]], 
-	           new.plot          = TRUE, 
-	           mainfont          = 1,   
-	           YLogScale         = TRUE, 
-	           ExponentiateDataOnPlot = TRUE,
-	           boxparm.stderr    = 0.025, 
-	           xlim              = c(10,30),  
-	           xticks            = seq(10,30, 5), 
-	           ylim              = c(0.25, 2), 
-	           yticks            = c(0.25, 0.5, 1, 2), 
-	           margins           = c(5,5,3,2),  
-	           xticklabs.cex     = 0.9, 
-	           yticklabs.cex     = 0.9,
-	           PointLabelsTop    = "exp_est",
-	           PointLabelsBottom = "Events",
-	           PointLabelsCEX    = 0.8, 
-	           TruncateAtPlotLims = FALSE,
-	           CIsOnTop           = TRUE)
-	
-	# add axis labels
-	AxisLabels(ylab=yaxisL[[j]][k], 
-	           xlab=xaxisL[[j]][k], 
-	           mainfont=0.9)
-	
-	par(xpd=NA)
-	
-	
-	# add the column heading
-	
-	if(j == 1) {
-	 text(x=20, y=log(3.2), labels=headers[k], font=2, cex = 1)
-	}
-	
-	 text(x=20, y=log(1.9), labels=events_sum[[j]][[k]], font=1, cex = 1)
-	 text(x=10,  y=log(2.2), labels= outcome[[j]][[k]], font=2, adj=c(0,0), cex = 1.2)
-	
-	
-	# Add labels for HR 
-	text(x      = 10, 
-	     y      = log(0.26), 
-	     labels = paste0("Per usual level\n", paste0(hr_cont_labels[[j]][[k]]$term_level, ":", collapse = "\n")), 
-	     font   = 1, 
-	     cex    = 0.8, 
-	     adj    = c(0, 0)
-	     )
-	
-	text(x      = 20.5, 
-	     y      = log(0.26), 
-	     labels = paste0("HR (95% CI)\n", paste0(hr_cont_labels[[j]][[k]]$hr_ci, collapse = "\n")), 
-	     font   = 1, 
-	     cex    = 0.8, 
-	     adj    = c(0, 0)
-	     )
-
-  }
+    sd_var <- format(round(sd(dat_temp[[o]]$met, na.rm=TRUE), 1), nsmall=1)
+    
+    cont_fu2[[ outcome_name[o] ]] <- map2_dfr(
+       .x=c("met4", "metsd"),
+       .y=c("Per 4 MET-hour/day", paste0("Per 1 SD (", sd_var, ")")),
+       ~Cox_shape_strength_data(
+           dataset                     = dat_temp[[o]], 
+           exposure_var_cont           = .x, 
+           expo_type_continuous        = TRUE,
+           correct_regression_dilution = TRUE, 
+           regression_dilution_ratio   = RDR_peto[[1]],
+           adjustment_vars             = c(ses_vars, lifestyle_vars), 
+           stratify_vars               = stratify, 
+           print_model_info            = FALSE) %>% 
+         pluck(., 2) %>%
+         mutate(
+           analysis=exclusions[[kk]]$label,
+           n=sum(dat_temp[[o]]$lex.Xst, na.rm=TRUE),
+           resurv_mean=NA_character_,
+           term=.y,
+           HR=exp(estimate), 
+           LCI=exp(estimate-1.96*std.error), 
+           UCI=exp(estimate+1.96*std.error),
+           HRCI=paste0(
+             format(round(HR,  2), nsmall=2L), " (",
+             format(round(LCI, 2), nsmall=2L), " - ", 
+             format(round(UCI, 2), nsmall=2L), ")"), 
+           p.value=case_when(p.value<0.0001~"<0.0001", TRUE~format(round(p.value, 4), nsmall=4))
+           ) %>% 
+         select(analysis, exposure=term, n, HRCI, resurv_mean, p.value), 
+       .progress=TRUE
+       )
+    }
   
+  strength_list[[exclude_temp]] <- cont_fu2
+  cat("Finished analysis for", exclude_temp, "\n \n")
 }
 
-## Plot title 
-##Plot title
+# Bind datasets -- 
+sensitivity_temp <- list()
 
-new.plot=TRUE
+for(Q in names(exclusions)){
+  
+  # Merge shape and stregnth data
+  sensitivity_temp[[Q]] <- map2(
+    .x=shape_list[[Q]], 
+    .y=seq_along(strength_list[[Q]]), 
+    ~rbind(.x, strength_list[[Q]][[.y]]) %>% 
+      mutate(Outcome=c("Heart Failure", "Pulmonary Heart Disease")[.y])) 
+}
 
-text(x      = -45, 
-     y      = log(90), 
-     font   = 2, 
-     cex    = 1.2,
-     adj    = c(0.5, 0),
-     labels = "eFigure 4: Associations of total physical activity with heart failure and pulmonary heart disease after sequential exclusion of participants with prior diseases")
+# Rearrange datasets by outcome x exclusion
+sensitivity <- list()
+
+for(SS in outcome_name){
+  
+  sensitivity[[SS]] <- map_dfr(
+      .x=sensitivity_temp,
+      ~mutate(
+        .x[[SS]], 
+        HRCI=case_when(grepl(pattern="NA", HRCI)~"Reference", TRUE~HRCI), 
+        exposure=case_when(
+          !is.na(resurv_mean)~paste0(exposure, " (", resurv_mean, ")"), TRUE~exposure)
+        )) %>% 
+    select(-resurv_mean) %>% 
+    # Add table header for reporting 
+    add_table_header(
+      data=., 
+      group_var=analysis, 
+      group_level_var=exposure
+    ) %>% 
+    mutate(across(.cols=everything(), ~case_when(is.na(.x)~"", TRUE~as.character(.x))))
+}
+
+# Export results -- 
+walk2(
+  .x=sensitivity, 
+  .y=c("HF", "PHD"),
+  ~write.csv(.x, file=paste0("Sensitivity analysis for ", .y, ".csv"))
+)
+
+rm(dat_temp)
+
+```
 
 
-closeFile(type)
-
-
-
-
+# End of script -- 
+```{r}
+writeLines(capture.output(sessionInfo()), "sessionInfo.txt")
 ```
 
 
