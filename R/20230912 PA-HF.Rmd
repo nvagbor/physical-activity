@@ -797,6 +797,7 @@ RDR_Rosner_ci <- list()
 RDR_Rosner_est <- list()
 resurv_merged_df <- list()
 resurvey_var_data <- list()  # Get dataframe for resurvey variable
+summary_table <- list()
 
 for (j in seq_along(exposures)){
    
@@ -861,6 +862,16 @@ for (j in seq_along(exposures)){
       baseline_var="mean_var_baseline", 
       resurvey_var="mean_var_resurvey")
     
+    ## Summary data for Peto RDR
+    summary_table[[j]] <- select(
+      resurv_var_df, baseline_group, contains("mean_var")) %>% 
+      mutate(
+        exposure=c("Total PA", "Occupational PA", "Non-occupational PA")[j], 
+        rdr=RDR_peto[[j]],
+        across(where(is.numeric), ~format(round(.x, 2), nsmall=2))
+      ) %>% 
+      arrange(baseline_group)
+    
     # Rosner RDR --
     RDR_Rosner_list <- rdr_rosner(
        dataset=resurv_merged_df[[j]], 
@@ -887,6 +898,19 @@ for (j in seq_along(exposures)){
 
 # Get Met resurvey data for further analysis -- 
 resurv_merged_met <- resurv_merged_df[[1]]
+
+
+# Make summary table -- 
+map_dfr(
+  .x=summary_table,
+  ~add_table_header(
+    data=.x, 
+    group_var=exposure, 
+    group_level_var=baseline_group) 
+    ) %>% 
+  mutate(across(everything(), ~case_when(is.na(.x)~"", TRUE~.x))) %>% 
+  write.csv(., file="Q5 means for PAs.csv")
+
 
 rm(resurvey1, resurvey2, resurv_merged_df) 
 
@@ -1176,7 +1200,7 @@ SetPage(orient="LANDSCAPE",
         titlespace=0.01,
         footer.cex = 1.2,
         footerspace=0.045,
-        filestem="Supplementary eFigure 3 - PA types")
+        filestem="Figure 4 - PA types")
 
 
 # loop over the panels in a slightly strange order, to match data
@@ -1206,10 +1230,10 @@ for (j in seq_along(plotdata)){
 	# add axis labels
 	AxisLabels(
 	  ylab=rep(c("Hazard ratio (95% CI)", ""), 2)[j], 
-	  xlab=c("Usual occupational PA, MET-hr/day",
-	         "Usual occupational PA, MET-hr/day", 
-	         "Usual non-occupational PA, MET-hr/d", 
-	         "Usual non-occupational PA, MET-hr/d")[j],
+	  xlab=c("Usual occupational PA, MET-hour/day",
+	         "Usual occupational PA, MET-hour/day", 
+	         "Usual non-occupational PA, MET-hour/day", 
+	         "Usual non-occupational PA, MET-hour/day")[j],
 	  mainfont = 1
 	  )
 	
@@ -1829,8 +1853,10 @@ for (HT in seq_len(n_row_trend[[index]]) ) {
        cex    = 0.8,  
        labels = bquote(Trend: ~ chi[.(chi_DF)]^2 ~ "=" ~ .(chi_val) ~ (.(p_value)))
        )
-  
 }
+
+# Segment -- 
+segments(x0=0, y0=98, x1=100, y1=98)
 
 # stop writing to file
 closeFile(type)
@@ -1996,7 +2022,7 @@ for (s in seq_along(cox_strata)){
     mutate(
        Chi2=round(Chi2, 2), 
        p_val=case_when(
-         p_int<0.0001~"0.0001", 
+         p_int<0.0001~"<0.0001", 
          p_int>=0.0001~format(round(p_int, 4), nsmall=4), 
          TRUE~NA_character_),
        n_event=prettyNum(n_event, big.mark=",", scientific=FALSE),
@@ -2133,7 +2159,7 @@ type <- "JPG"
 SetPage(orient          = "PORTRAIT", 
         perpage         = 1, 
         type            = type, 
-        filestem        = "Figure 4 - Subgroup analysis", 
+        filestem        = "Figure 3 - Subgroup analysis", 
         page_dpi        = 600,
         page_pointsize  = 8,
         page_height     = 9,
@@ -2152,7 +2178,7 @@ par(xpd=NA)
 
 spacing    <- 1.3
 plot.width <- 11
-x_label    <- "HR (95% CI) per 4 MET-hr/day\nhigher usual TPA"
+x_label    <- "HR (95% CI) per 4 MET-hour/day\nhigher usual TPA"
 
 # draw the Forest plot(s)
 xaxmin1 <- 29.2542
@@ -2457,9 +2483,12 @@ for (df in seq_along(region_subgroup)){
       ) %>%  
     select(-c(DF:p_int)) %>%
     mutate(
-      term=case_when(term%in%c("Urban", "Rural")~"All", TRUE~term), 
-      IsDiamond=case_when(term=="All"~1, TRUE~0), 
-      FillColour=case_when(term=="All"~0, TRUE~1))
+      term=case_when(
+        term=="Urban"~"All urban", 
+        term=="Rural"~"All rural", 
+        TRUE~term), 
+      IsDiamond=case_when(grepl("All", term)~1, TRUE~0), 
+      FillColour=case_when(grepl("All", term)~0, TRUE~1))
   
   }    
    
@@ -2559,7 +2588,7 @@ par(xpd=NA)
 
 spacing    <- 0.8
 plot.width <- 13
-x_label    <- "HR (95% CI) per 4 MET-hr/day\nhigher usual TPA"
+x_label    <- "HR (95% CI) per 4 MET-hour/day\nhigher usual TPA"
 
 # draw the Forest plot(s)
 xaxmin1 <- 22.2542
@@ -2725,6 +2754,9 @@ index = 2
     )
     
   }
+
+# Segments --
+segments(x0=0, y0=98, x1=100, y1=98)
 
 # stop writing to file
 closeFile(type)
@@ -2997,7 +3029,7 @@ xaxmax1 <- xaxmin1 + plot.width
 xaxmin2 <- 67.5592
 xaxmax2 <- xaxmin2 + plot.width
 
-x_label <- "HR (95% CI) per 4 MET-hr/day\n higher usual TPA"
+x_label <- "HR (95% CI) per 4 MET-hour/day\n higher usual TPA"
 
 locs <- list()
 
@@ -3040,9 +3072,6 @@ for (df in seq_along(df_confounding)) {
     font=2, 
     cex = 1.1, 
     col="black")
-  
-  # Event title --
-  # text(x=x_main_pos[df], y=110, labels= n_label[df], adj=c(0.5,0), font=1, cex = 1)
 
   ## Add other columns for both outcomes --
   x.positions <- c(xaxmax1 + 19.5, xaxmax2 + 20.5)
@@ -3109,6 +3138,9 @@ text(x=4, y=100, labels="Adjustments", adj=c(0,0), font=2, cex=1.1)
     text(x=4, y=locs[[1]]$BlankLocs, labels=left.labels[blank.rows], adj=0, font=2, cex=1)
   
   }
+
+# Add segments -- 
+segments(x0=0, y0=98, x1=100, y1=98)
 
 # stop writing to file
 closeFile(type)
@@ -3332,7 +3364,7 @@ SetPage(
   titlespace     = 0.05, 
   footerspace    = 0.02,
   footer.cex     = 1.5,
-  filestem       = "Figure 4 - Mediation analysis")
+  filestem       = "Supplementary eFigure 3 - Mediation analysis")
 
 par(mar=c(1,1,1,1))
 
