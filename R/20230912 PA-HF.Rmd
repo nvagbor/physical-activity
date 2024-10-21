@@ -2849,7 +2849,7 @@ df_confounding <- map(
 
 ```
 
-## Mediation plotting 
+## Confounding plot --
 
 ```{r}
 
@@ -3110,7 +3110,8 @@ mediators <- list(
   "bmi_calc"      = c("bmi_calc", "I(bmi_calc^2)"), 
   "waist_circ_cm" = c("bmi_calc", "I(bmi_calc^2)", "waist_circ_cm", "I(waist_circ_cm^2)"), 
   "diabetes"      = c("bmi_calc", "I(bmi_calc^2)", "waist_circ_cm", "I(waist_circ_cm^2)", "diabetes"), 
-  "HTN"           = c("bmi_calc", "I(bmi_calc^2)", "waist_circ_cm", "I(waist_circ_cm^2)", "diabetes", "HTN")
+  "HTN"           = c("bmi_calc", "I(bmi_calc^2)", "waist_circ_cm", "I(waist_circ_cm^2)", "diabetes", "HTN"), 
+  "heart_rate_mean" = c("bmi_calc", "I(bmi_calc^2)", "waist_circ_cm", "I(waist_circ_cm^2)", "diabetes", "HTN", "heart_rate_mean", "I(heart_rate_mean^2)")
   )
 
 # Create lists to hold data 
@@ -3217,9 +3218,9 @@ met4_labels <- map(
   ~mutate(
     .x,
     hr_ci=paste0(
-      format(round(hr_corrected,  3), nsmall=3L), " (",
-      format(round(lci_corrected, 3), nsmall=3L), " - ", 
-      format(round(uci_corrected, 3), nsmall=3L), ")"
+      format(round(hr_corrected,  2), nsmall=2L), " (",
+      format(round(lci_corrected, 2), nsmall=2L), " - ", 
+      format(round(uci_corrected, 2), nsmall=2L), ")"
       )
     ) %>%
     select(term, hr_ci, delta_logHR, analysis)
@@ -3230,29 +3231,30 @@ headers <- c(
   "B: (A) + BMI",
   "C: (B) + WC",
   "D: (C) + Diabetes",
-  "E: (D) + Hypertension")
+  "E: (D) + Hypertension", 
+  "F: (E) + Resting heart rate")
 
 ## Subheadings for panels: A. Heart failure and B. Pulmonary heart disease 
-n_expo <- length(mediators)-1
+n_mediators <- length(mediators)
 outcome <- c(
   "Heart failure", 
-  rep(NA, n_expo),
+  rep(NA, n_mediators-1),
   "Pulmonary heart disease", 
-  rep(NA, n_expo))
+  rep(NA, n_mediators-1))
 
 yaxisL <- c(
   "Hazard ratio (95% CI)", 
-  rep(NA, n_expo),
+  rep(NA, n_mediators-1),
   "Hazard ratio (95% CI)", 
-  rep(NA, n_expo))
+  rep(NA, n_mediators-1))
 
 xaxisL <- c(
-  rep(NA, n_expo+1),
-  rep("Usual TPA, MET-hour/day", n_expo+1))
+  rep(NA, n_mediators),
+  rep("Usual TPA, MET-hour/day", n_mediators))
 
 HRLabel <- c(
-  "HR (95% CI) per 4 MET-hour/day\nusual TPA:", rep("HR (95% CI):", 4), 
-  "HR (95% CI) per 4 MET-hour/day\nusual TPA:", rep("HR (95% CI):", 4))
+  "HR (95% CI) per 4 MET-hour/day\nusual TPA:", rep("HR (95% CI):", n_mediators), 
+  "HR (95% CI) per 4 MET-hour/day\nusual TPA:", rep("HR (95% CI):", n_mediators))
 
 DeltaLabel <- "Reduction in logHR:"
 
@@ -3260,13 +3262,15 @@ DeltaLabel <- "Reduction in logHR:"
 type <- "PNG"
 SetPage(
   orient         = "LANDSCAPE",
-  perpage        = 10,
+  # perpage        = length(plotdata),
+  nlong          = length(plotdata)/2,
+  nshort         = 2,
   type           = type, 
   png_bg         = "white",
-  page_width     = 18,
-  page_height    = 12,
-  page_dpi       = 600,
-  page_pointsize = 11,
+  page_width     = 14,
+  page_height    = 8,
+  page_dpi       = 900,
+  page_pointsize = 8.5,
   suppress.date  = TRUE,
   titlespace     = 0.05, 
   footerspace    = 0.02,
@@ -3303,7 +3307,7 @@ for (j in seq_along(plotdata)){
 	par(xpd=NA)
 	
 	# add the column heading
-	if(j <= n_expo+1) {
+	if(j <= n_mediators) {
 	 text(x=20, y=log(2.8), labels=headers[j], font=2, cex=1.2)
 	}
 	 # text(x=20,  y=log(1.9), labels=events_sum[[j]], font=1, cex=1)
